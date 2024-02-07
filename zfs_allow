@@ -1,0 +1,3 @@
+target: replica create,destroy,receive,userprop,canmount,mountpoint 
+
+source: send,snapshot
