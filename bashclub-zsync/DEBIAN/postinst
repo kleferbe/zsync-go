@@ -1,0 +1,5 @@
+#!/bin/bash
+
+if [ ! -d /var/log/bashclub-zsync ]; then
+  mkdir -p /var/log/bashclub-zsync
+fi

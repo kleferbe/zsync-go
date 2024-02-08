@@ -3,11 +3,14 @@
 # bashclub zfs replication script
 # Author: (C) 2023 Thorsten Spille <thorsten@spille-edv.de>
 
+__version__=v1.0.0
+
 PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"
 
 prog="$(basename $0)"
 zfs=$(which zfs)
 ssh=$(which ssh)
+scp=$(which scp)
 grep=$(which grep)
 uniq=$(which uniq)
 cut=$(which cut)
@@ -16,6 +19,8 @@ wc=$(which wc)
 tr=$(which tr)
 sed=$(which sed)
 zfs_auto_snapshot=$(which zfs-auto-snapshot)
+checkzfs=$(which checkzfs)
+mv=$(which mv)
 
 rc=0
 debug=
@@ -24,7 +29,7 @@ debug=
 conf=/etc/bashclub/zsync.conf
 
 #### default values in config file
-# replication target on local machine 
+# replication target path on local machine 
 target=pool/dataset
 
 # ssh address of remote machine
@@ -60,18 +65,25 @@ checkzfs_max_age=1500,6000
 # set checkzfs maximum count of snapshots per dataset (comma separated => warn,crit)
 checkzfs_max_snapshot_count=150,165
 
+# set where to move the checkzfs output (0 = local machine, 1 = source machine)
+checkzfs_spool=0
+
+# set maxmimum age of checkzfs data in seconds (hourly = 3900, daily = 87000)
+checkzfs_spool_maxage=87000
 
 usage() {
-	cat >&2 <<-EOF
-	usage: $prog [-h] [-d] [-c CONFIG]
-	  creates a mirrored replication of configured zfs filesystems / volumes
+	cat >&2 << EOF
+$prog Version $__version__
+-------------------------------------------------------------------------------
+usage: $prog [-h] [-d] [-c CONFIG]
+    creates a mirrored replication of configured zfs filesystems / volumes
     -c CONFIG    Configuration file for this script
     -d           Debug mode
-  ---------------------------------------------------------------------------
-    (C) 2023     by Spille IT Solutions for bashclub (github.com/bashclub)
+-------------------------------------------------------------------------------
+    (C) 2024     by Spille IT Solutions for bashclub (github.com/bashclub)
                  Author: Thorsten Spille <thorsten@spille-edv.de>
-  ---------------------------------------------------------------------------
-	EOF
+-------------------------------------------------------------------------------
+EOF
 	exit $1
 }
 
@@ -160,7 +172,7 @@ fi
 
 include_list="[INFO] Included datasets:\n"
 exclude_list="[INFO] Excluded datasets:\n"
-checkzfs_headline="[INFO] checkzfs filter:\n"
+checkzfs_headline="[INFO] checkzfs filter:"
 checkzfs_filter=
 IFS=$'\n'
 for zvol in $($ssh $sshcipher $sshport $source "zfs get -H -o name,value,source -t filesystem,volume $tag"); do
@@ -182,11 +194,15 @@ for zvol in $($ssh $sshcipher $sshport $source "zfs get -H -o name,value,source 
         fi
     else
         exclude_list="${exclude_list}\t${name}\n"
+        if [[ $(echo $zvol | $grep "local") ]]; then
+            checkzfs_filter="!#$name|$checkzfs_filter"
+        fi
     fi
 done
+checkzfs_filter=${checkzfs_filter::-1}
 log "$include_list"
 log "$exclude_list"
-log "$checkzfs_headline\ncheckzfs_filter="$checkzfs_filter"
+log "$checkzfs_headline\ncheckzfs_filter=$checkzfs_filter"
 
 if ! $zfs list $target > /dev/null 2>&1 ; then
     log "[DEBUG] $target does not exist. Creating..."
@@ -291,5 +307,18 @@ for name in "${syncvols[@]}"; do
     else
         if [[ $debug == "-v" ]]; then log "[DEBUG] $name - No snapshots found with filter $snapshot_filter"; fi
     fi
+    log "[INFO] Replication of $name finished."
 done
+
+if [ $checkzfs_disabled -eq 0 ]; then
+    log "[INFO] Running checkzfs..."
+    echo "<<<local>>>" > /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
+    $checkzfs --output checkmk --threshold $checkzfs_max_age --maxsnapshots $checkzfs_max_snapshot_count --prefix $checkzfs_prefix --filter $checkzfs_filter >> /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
+    if [ $checkzfs_spool -eq 0 ]; then
+        $mv /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix} /var/lib/check_mk_agent/spool/
+    else
+        $scp /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix} ${target}:/var/lib/check_mk_agent/spool/
+    fi
+fi
+
 exit $rc
