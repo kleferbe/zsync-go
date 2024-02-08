@@ -22,34 +22,49 @@ chmod +x /usr/bin/bashclub-zsync
 bashclub-zsync
 ~~~
 
+## Documentation
+[DOCUMENTATION_DE.md](DOCUMENTATION_DE.md)
+
+
 ## Configuration
 After first execution adjust the default config file `/etc/bashclub/zsync.conf`:
 
 ~~~
-# target path on local machine
-target=backup/px1
+# replication target path on local machine 
+target=pool/dataset
 
-# source host
+# ssh address of remote machine
 source=user@host
 
-# source host ssh port
+# ssh port of remote machine
 sshport=22
 
-# tag to mark source filesystem
+# zfs user parameter to identify filesystems/volumes to replicate
 tag=bashclub:zsync
 
-# snapshot name filter
+# pipe separated list of snapshot name filters
 snapshot_filter="hourly|daily|weekly|monthly"
 
-# number of minimum snapshots to keep (per snapshot filter)
+# minimum count of snapshots per filter to keep
 min_keep=3
 
-# number of zfs snapshots to keep on source (0 = snapshot function disabled)
+# number of zfs snapshots to keep on source (0 or 1 = snapshot function disabled)
 zfs_auto_snapshot_keep=0
 
 # make snapshot via zfs-auto-snapshot before replication
 zfs_auto_snapshot_label="backup"
 
+# disable checkzfs with value > 0
+checkzfs_disabled=0
+
+# set checkzfs parameter "--prefix"
+checkzfs_prefix=zsync
+
+# set checkzfs maximum age of last snapshot in minutes (comma separated => warn,crit)
+checkzfs_max_age=1500,6000
+
+# set checkzfs maximum count of snapshots per dataset (comma separated => warn,crit)
+checkzfs_max_snapshot_count=150,165
 ~~~
 
 ### Define a cronjob
