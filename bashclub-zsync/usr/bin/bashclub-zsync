@@ -196,15 +196,15 @@ for zvol in $($ssh $sshcipher $sshport $source "zfs get -H -o name,value,source 
         fi
     else
         exclude_list="${exclude_list}\t${name}\n"
-        if [[ $(echo $zvol | $grep "local") ]]; then
-            checkzfs_filter="!#$name|$checkzfs_filter"
-        fi
+#        if [[ $(echo $zvol | $grep "local") ]]; then
+#            checkzfs_filter="!#$name|$checkzfs_filter"
+#        fi
     fi
 done
 checkzfs_filter=${checkzfs_filter::-1}
 log "$include_list"
 log "$exclude_list"
-log "$checkzfs_headline\ncheckzfs_filter=$checkzfs_filter"
+log "$checkzfs_headline\ncheckzfs_filter=$checkzfs_filter\n"
 
 if ! $zfs list $target > /dev/null 2>&1 ; then
     log "[DEBUG] $target does not exist. Creating..."
@@ -315,6 +315,7 @@ done
 if [ $checkzfs_disabled -eq 0 ]; then
     log "[INFO] Running checkzfs..."
     echo "<<<local>>>" > /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
+    if [[ $debug == "-v" ]]; then log "[DEBUG] Command:\n$checkzfs --source $source --output checkmk --threshold $checkzfs_max_age --maxsnapshots $checkzfs_max_snapshot_count --prefix $checkzfs_prefix --filter $checkzfs_filter >> /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}"; fi
     $checkzfs --source $source --output checkmk --threshold $checkzfs_max_age --maxsnapshots $checkzfs_max_snapshot_count --prefix $checkzfs_prefix --filter $checkzfs_filter >> /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
     if [ $checkzfs_spool -eq 0 ]; then
         $mv /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix} /var/lib/check_mk_agent/spool/
