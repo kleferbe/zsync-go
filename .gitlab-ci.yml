@@ -8,6 +8,7 @@ build_linux:
     only:
       - tags
     script:
+      - chmod +x ./build-package
       - ./build-package ${CI_COMMIT_TAG}
     artifacts:
         name: "bashclub-zsync_${CI_COMMIT_TAG}_all.deb"
