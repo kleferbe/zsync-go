@@ -1,0 +1,19 @@
+#!/bin/bash
+version=$1
+package=bashclub-zsync
+
+deb_package=${package}_${version}_all.deb
+
+echo "$(date) creating DEBIBAN/control..."
+cat << EOF > $package/DEBIAN/control
+Package: $package
+Version: $version
+Architecture: all
+Essential: no
+Priority: optional
+Depends: openssh-server, proxmox-ve, zfs-auto-snapshot, zfsutils-linux
+Maintainer: bashclub
+Description: The deb package for $package $version maintained from bashclub.
+EOF
+
+dpkg-deb --build $package $deb_package
