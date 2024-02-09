@@ -16,4 +16,10 @@ Maintainer: bashclub
 Description: The deb package for $package $version maintained from bashclub.
 EOF
 
+echo "$(date) fixing acls"
+chmod 755 $package/DEBIAN/p*
+
+# remove bashclub-zsync-config from package
+rm $package/usr/bin/bashclub-zsync-config
+
 dpkg-deb --build $package $deb_package

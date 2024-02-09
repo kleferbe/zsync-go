@@ -2,6 +2,15 @@
 
 PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"
 
+# ensure log folder is present
 if [ ! -d /var/log/bashclub-zsync ]; then
   mkdir -p /var/log/bashclub-zsync
+  chown -R root:root /var/log/bashclub-zsync
+  chmod -R 755 /var/log/bashclub-zsync
 fi
+
+chown root:root /usr/bin/bashclub-zsync
+chmod 755 /usr/bin/bashclub-zsync
+
+chown root:root /etc/logrotate.d/bashclub_zsync
+chmod 644 /etc/logrotate.d/bashclub_zsync
