@@ -102,7 +102,7 @@ function log() {
 }
 
 if which checkzfs; then
-    if [ checkzfs_disabled -eq 0 ]; then
+    if [ $checkzfs_disabled -eq 0 ]; then
         checkzfs=$(which checkzfs)
         log "[INFO] installed checkzfs found: $checkzfs"
     else
