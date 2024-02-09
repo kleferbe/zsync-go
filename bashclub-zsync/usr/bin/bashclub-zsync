@@ -132,6 +132,8 @@ checkzfs_disabled=$checkzfs_disabled
 checkzfs_prefix=$checkzfs_prefix
 checkzfs_max_age=$checkzfs_max_age
 checkzfs_max_snapshot_count=$checkzfs_max_snapshot_count
+checkzfs_spool=$checkzfs_spool
+checkzfs_spool_maxage=$checkzfs_spool_maxage
 EOF
     log "[INFO] Initial config file created. Please adjust and restart script. Exiting..."
     usage 0
@@ -141,10 +143,10 @@ if [[ $source == "" ]]; then
     log "[INFO] source is empty, switching to local mode."
     ssh=
     sshport=
-    log "[INFO] Configuration:\n\ttarget=$target\n\ttag=$tag\n\tsnapshot_filter=$snapshot_filter\n\tmin_keep=$min_keep\n\ŧzfs_auto_snapshot_keep=$zfs_auto_snapshot_keep\n\tzfs_auto_snapshot_label=$zfs_auto_snapshot_label\n\tcheckzfs_disabled=$checkzfs_disabled\n\tcheckzfs_prefix=$checkzfs_prefix\n\tcheckzfs_max_age=$checkzfs_max_age\n\tcheckzfs_max_snapshot_count=$checkzfs_max_snapshot_count\n"
+    log "[INFO] Configuration:\n\ttarget=$target\n\ttag=$tag\n\tsnapshot_filter=$snapshot_filter\n\tmin_keep=$min_keep\n\ŧzfs_auto_snapshot_keep=$zfs_auto_snapshot_keep\n\tzfs_auto_snapshot_label=$zfs_auto_snapshot_label\n\tcheckzfs_disabled=$checkzfs_disabled\n\tcheckzfs_prefix=$checkzfs_prefix\n\tcheckzfs_max_age=$checkzfs_max_age\n\tcheckzfs_max_snapshot_count=$checkzfs_max_snapshot_count\n\tcheckzfs_spool=$checkzfs_spool\n\tcheckzfs_spool_maxage=$checkzfs_spool_maxage\n"
 else
     sshport=-p$sshport
-    log "[INFO] Configuration:\n\ttarget=$target\n\tsource=$source\n\tsshport=$sshport\n\ttag=$tag\n\tsnapshot_filter=$snapshot_filter\n\tmin_keep=$min_keep\n\tzfs_auto_snapshot_keep=$zfs_auto_snapshot_keep\n\tzfs_auto_snapshot_label=$zfs_auto_snapshot_label\n\tcheckzfs_disabled=$checkzfs_disabled\n\tcheckzfs_prefix=$checkzfs_prefix\n\tcheckzfs_max_age=$checkzfs_max_age\n\tcheckzfs_max_snapshot_count=$checkzfs_max_snapshot_count\n"
+    log "[INFO] Configuration:\n\ttarget=$target\n\tsource=$source\n\tsshport=$sshport\n\ttag=$tag\n\tsnapshot_filter=$snapshot_filter\n\tmin_keep=$min_keep\n\tzfs_auto_snapshot_keep=$zfs_auto_snapshot_keep\n\tzfs_auto_snapshot_label=$zfs_auto_snapshot_label\n\tcheckzfs_disabled=$checkzfs_disabled\n\tcheckzfs_prefix=$checkzfs_prefix\n\tcheckzfs_max_age=$checkzfs_max_age\n\tcheckzfs_max_snapshot_count=$checkzfs_max_snapshot_count\n\tcheckzfs_spool=$checkzfs_spool\n\tcheckzfs_spool_maxage=$checkzfs_spool_maxage\n"
 fi
 
 local_os_id=$($grep -E "^ID=" /etc/os-release | $cut -d'=' -f2)
@@ -313,7 +315,7 @@ done
 if [ $checkzfs_disabled -eq 0 ]; then
     log "[INFO] Running checkzfs..."
     echo "<<<local>>>" > /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
-    $checkzfs --output checkmk --threshold $checkzfs_max_age --maxsnapshots $checkzfs_max_snapshot_count --prefix $checkzfs_prefix --filter $checkzfs_filter >> /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
+    $checkzfs --source $source --output checkmk --threshold $checkzfs_max_age --maxsnapshots $checkzfs_max_snapshot_count --prefix $checkzfs_prefix --filter $checkzfs_filter >> /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
     if [ $checkzfs_spool -eq 0 ]; then
         $mv /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix} /var/lib/check_mk_agent/spool/
     else
