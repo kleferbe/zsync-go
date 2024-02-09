@@ -1,6 +1,6 @@
 stages:
   - build
-  - deploy
+#  - deploy
 
 build_linux:
     stage: build
