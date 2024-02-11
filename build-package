@@ -22,7 +22,7 @@ chmod 755 $package/DEBIAN/p*
 # remove bashclub-zsync-config from package
 rm $package/usr/bin/bashclub-zsync-config
 
-# add changelog and changelog
+# add license and changelog
 mkdir -p ./$package/usr/share/doc/$package/copyright
 cp LICENSE ./$package/usr/share/doc/$package/copyright
 cp CHANGELOG.md ./$package/usr/share/doc/$package/
