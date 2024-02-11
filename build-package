@@ -11,7 +11,7 @@ Version: $version
 Architecture: all
 Essential: no
 Priority: optional
-Depends: openssh-server, zfs-auto-snapshot, zfsutils-linux
+Depends: bashclub-checkzfs, openssh-server, zfs-auto-snapshot, zfsutils-linux
 Maintainer: bashclub
 Description: The deb package for $package $version maintained from bashclub.
 EOF
