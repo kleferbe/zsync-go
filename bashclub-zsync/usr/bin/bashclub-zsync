@@ -3,7 +3,7 @@
 # bashclub zfs replication script
 # Author: (C) 2023 Thorsten Spille <thorsten@spille-edv.de>
 
-__version__=v1.0.0
+__version__=v1.0.1
 
 PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"
 
