@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.0.3] - 2024-02-22
+
+### Added
+- Add sshport to checkzfs command
+- Add checkzfs spool options to default config
+
 ## [v1.0.2] - 2024-02-21
 
 ### Added
