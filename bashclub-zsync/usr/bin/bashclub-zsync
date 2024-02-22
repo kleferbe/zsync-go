@@ -142,15 +142,15 @@ fi
 if [[ $source == "" ]]; then
     log "[INFO] source is empty, switching to local mode."
     ssh=
-    sshport=
+    zsync_sshport=
     log "[INFO] Configuration:\n\ttarget=$target\n\ttag=$tag\n\tsnapshot_filter=$snapshot_filter\n\tmin_keep=$min_keep\n\ŧzfs_auto_snapshot_keep=$zfs_auto_snapshot_keep\n\tzfs_auto_snapshot_label=$zfs_auto_snapshot_label\n\tcheckzfs_disabled=$checkzfs_disabled\n\tcheckzfs_prefix=$checkzfs_prefix\n\tcheckzfs_max_age=$checkzfs_max_age\n\tcheckzfs_max_snapshot_count=$checkzfs_max_snapshot_count\n\tcheckzfs_spool=$checkzfs_spool\n\tcheckzfs_spool_maxage=$checkzfs_spool_maxage\n"
 else
-    sshport=-p$sshport
+    zsync_sshport=-p$sshport
     log "[INFO] Configuration:\n\ttarget=$target\n\tsource=$source\n\tsshport=$sshport\n\ttag=$tag\n\tsnapshot_filter=$snapshot_filter\n\tmin_keep=$min_keep\n\tzfs_auto_snapshot_keep=$zfs_auto_snapshot_keep\n\tzfs_auto_snapshot_label=$zfs_auto_snapshot_label\n\tcheckzfs_disabled=$checkzfs_disabled\n\tcheckzfs_prefix=$checkzfs_prefix\n\tcheckzfs_max_age=$checkzfs_max_age\n\tcheckzfs_max_snapshot_count=$checkzfs_max_snapshot_count\n\tcheckzfs_spool=$checkzfs_spool\n\tcheckzfs_spool_maxage=$checkzfs_spool_maxage\n"
 fi
 
 local_os_id=$($grep -E "^ID=" /etc/os-release | $cut -d'=' -f2)
-remote_os_id=$($ssh $source $sshport "grep -E \"^ID=\" /etc/os-release | cut -d'=' -f2")
+remote_os_id=$($ssh $source $zsync_sshport "grep -E \"^ID=\" /etc/os-release | cut -d'=' -f2")
 
 if [[ $local_os_id == "freebsd" ]]; then
     local_aes=$($grep -o AES /var/run/dmesg.boot | $uniq)
@@ -159,9 +159,9 @@ else
 fi
 
 if [[ $remote_os_id == "freebsd" ]]; then
-    remote_aes=$($ssh $source $sshport "grep -o AES /var/run/dmesg.boot | uniq")
+    remote_aes=$($ssh $source $zsync_sshport "grep -o AES /var/run/dmesg.boot | uniq")
 else
-    remote_aes=$($ssh $source $sshport "grep -m1 -o aes /proc/cpuinfo | uniq")
+    remote_aes=$($ssh $source $zsync_sshport "grep -m1 -o aes /proc/cpuinfo | uniq")
 fi
 
 if [[ $local_aes == "aes" ]] && [[ $remote_aes == "aes" ]]; then
@@ -177,7 +177,7 @@ exclude_list="[INFO] Excluded datasets:\n"
 checkzfs_headline="[INFO] checkzfs filter:"
 checkzfs_filter=
 IFS=$'\n'
-for zvol in $($ssh $sshcipher $sshport $source "zfs get -H -o name,value,source -t filesystem,volume $tag"); do
+for zvol in $($ssh $sshcipher $zsync_sshport $source "zfs get -H -o name,value,source -t filesystem,volume $tag"); do
     name=$(echo $zvol | $cut -f1)
     if [[ "$(echo $zvol | $cut -f2)" == "subvols" ]]; then
         if [[ $(echo $zvol | $grep -vE "local|received") ]]; then
@@ -218,7 +218,7 @@ fi
 
 if [ $zfs_auto_snapshot_keep -gt 1 ]; then
     log "[DEBUG] Running zfs-auto-snapshot"
-    $ssh $sshcipher $sshport $source "which zfs-auto-snapshot > /dev/null || exit 0 ; zfs-auto-snapshot --quiet --syslog --label=$zfs_auto_snapshot_label --keep=$zfs_auto_snapshot_keep //"
+    $ssh $sshcipher $zsync_sshport $source "which zfs-auto-snapshot > /dev/null || exit 0 ; zfs-auto-snapshot --quiet --syslog --label=$zfs_auto_snapshot_label --keep=$zfs_auto_snapshot_keep //"
     if [[ $snapshot_filter == "" ]]; then
         snapshot_filter="$zfs_auto_snapshot_label"
     else
@@ -228,7 +228,7 @@ fi
 
 for name in "${syncvols[@]}"; do
     log "[INFO] Replicate $name"
-    fstype=$($ssh $sshcipher $sshport $source zfs get -H -o value type $name)
+    fstype=$($ssh $sshcipher $zsync_sshport $source zfs get -H -o value type $name)
     if [[ $fstype == "filesystem" ]]; then
         mp=-xmountpoint
         cm=-ocanmount=noauto
@@ -237,7 +237,7 @@ for name in "${syncvols[@]}"; do
         cm=
     fi
 
-    if [[ $($ssh $sshcipher $sshport $source "zfs list -H -t snapshot -o name -S creation $name 2>/dev/null | grep -E \"@.*($snapshot_filter)\" | wc -l | tr -d ' '") -gt 0 ]]; then
+    if [[ $($ssh $sshcipher $zsync_sshport $source "zfs list -H -t snapshot -o name -S creation $name 2>/dev/null | grep -E \"@.*($snapshot_filter)\" | wc -l | tr -d ' '") -gt 0 ]]; then
         IFS=$' '
         if ! $zfs list -H $target/$name > /dev/null 2>&1 ; then
             if [[ $debug == "-v" ]]; then log "[DEBUG] $target/$name does not exist"; fi
@@ -253,9 +253,9 @@ for name in "${syncvols[@]}"; do
 
             if [[ $debug == "-v" ]]; then log "[DEBUG] $name - Start initial replication"; fi
             IFS=$'\n'
-            for snap in $($ssh $sshcipher $sshport $source "zfs list -H -t snapshot -o name -S creation $name | grep -E \"@.*($snapshot_filter)\" | tail -1"); do
+            for snap in $($ssh $sshcipher $zsync_sshport $source "zfs list -H -t snapshot -o name -S creation $name | grep -E \"@.*($snapshot_filter)\" | tail -1"); do
                 log "[INFO] Start initial replication: $snap => $target/$(echo $name | $cut -d'/' -f1)"
-                $ssh $sshcipher $sshport $source "zfs send -w -p $debug $snap" | $zfs receive $mp $cm -x $tag -x com.sun:auto-snapshot $debug -dF $target/$(echo $name | $cut -d'/' -f1)
+                $ssh $sshcipher $zsync_sshport $source "zfs send -w -p $debug $snap" | $zfs receive $mp $cm -x $tag -x com.sun:auto-snapshot $debug -dF $target/$(echo $name | $cut -d'/' -f1)
                 if [ $? -gt $rc ]; then rc=1; log "[ERROR] initial replication to $target/$name failed."; fi
             done
         fi
@@ -263,15 +263,15 @@ for name in "${syncvols[@]}"; do
         if [[ $debug == "-v" ]]; then log "[DEBUG] $name - Start incremental replication"; fi
         guid=$($zfs list -H -o guid -s creation -t snapshot $target/$name | $tail -1)
         if [[ $guid != "" ]]; then
-            last=$($ssh $sshcipher $sshport $source "zfs list -H -o name,guid -t snapshot $name | grep $guid | tail -1 | cut -f1")
+            last=$($ssh $sshcipher $zsync_sshport $source "zfs list -H -o name,guid -t snapshot $name | grep $guid | tail -1 | cut -f1")
             if [[ $last != "" ]]; then
                 IFS=$'\n'
                 if [[ $fstype == "filesystem" ]] && [[ $($zfs get -H -o value canmount $target/$name) != "noauto" ]]; then
                     $zfs set canmount=noauto $target/$name
                 fi
-                for snap in $($ssh $sshcipher $sshport $source "zfs list -H -o name,guid -s creation -t snapshot $name | grep -E \"@.*($snapshot_filter)\" | grep --after-context=200 $guid | grep -v $guid | cut -f1"); do
+                for snap in $($ssh $sshcipher $zsync_sshport $source "zfs list -H -o name,guid -s creation -t snapshot $name | grep -E \"@.*($snapshot_filter)\" | grep --after-context=200 $guid | grep -v $guid | cut -f1"); do
                     log "[INFO] Replicating delta of $last => $snap to $target/$name"
-                    $ssh $sshcipher $sshport $source "zfs send -w $debug -i $last $snap" | zfs receive -x $tag -x com.sun:auto-snapshot -F $debug $target/$name
+                    $ssh $sshcipher $zsync_sshport $source "zfs send -w $debug -i $last $snap" | zfs receive -x $tag -x com.sun:auto-snapshot -F $debug $target/$name
                     if [ $? -gt $rc ]; then rc=1; log "[ERROR] incremental replication to $target/$name failed."; fi
                     last=$snap
                 done
@@ -289,7 +289,7 @@ for name in "${syncvols[@]}"; do
         IFS=$'\n'
         for interval in $filter ; do
             if [[ $debug == "-v" ]]; then log "[DEBUG] $name - Checking interval $interval"; fi
-            guid=$($ssh $sshcipher $sshport $source "zfs list -H -o guid,name -S creation -t snapshot $name | grep -E \"@.*$interval\" | cut -f1 | tail -1")
+            guid=$($ssh $sshcipher $zsync_sshport $source "zfs list -H -o guid,name -S creation -t snapshot $name | grep -E \"@.*$interval\" | cut -f1 | tail -1")
             if [[ "$(echo -e "$guid" | sed 's/\n//g')" != "" ]]; then
                 snaps_to_delete=$($zfs list -H -o name,guid -S creation -t snapshot $target/$name | $grep -E "@.*$interval" | $grep --after-context=200 $guid | $grep -v $guid | $cut -f1)
                 snap_count=$($zfs list -H -o name,guid -S creation -t snapshot $target/$name | $grep -E "@.*$interval" | $wc -l | $tr -d ' ')
@@ -316,7 +316,7 @@ if [ $checkzfs_disabled -eq 0 ]; then
     log "[INFO] Running checkzfs..."
     echo "<<<local>>>" > /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
     if [[ $debug == "-v" ]]; then log "[DEBUG] Command:\n$checkzfs --source $source --output checkmk --threshold $checkzfs_max_age --maxsnapshots $checkzfs_max_snapshot_count --prefix $checkzfs_prefix --filter \"$checkzfs_filter\" >> /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}"; fi
-    $checkzfs --source $source --output checkmk --threshold $checkzfs_max_age --maxsnapshots $checkzfs_max_snapshot_count --prefix $checkzfs_prefix --filter "$checkzfs_filter" >> /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
+    $checkzfs --source $source:$sshport --output checkmk --threshold $checkzfs_max_age --maxsnapshots $checkzfs_max_snapshot_count --prefix $checkzfs_prefix --filter "$checkzfs_filter" >> /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
     if [ $checkzfs_spool -eq 0 ]; then
         $mv /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix} /var/lib/check_mk_agent/spool/
     else
