@@ -1,5 +1,10 @@
 # Change log
 
+## [v1.0.2] - 2024-02-21
+
+### Added
+- Fix checkzfs call and log message
+
 ## [v1.0.1] - 2024-02-11
 
 ### Added
