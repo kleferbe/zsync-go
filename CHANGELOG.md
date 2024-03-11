@@ -1,5 +1,12 @@
 # Change log
 
+## [v1.0.4] - 2024-02-22
+
+### Added
+- Fix download link in README.md
+- Add checkzfs_local parameter to leave --source parameter empty
+- Fix logrotate config
+
 ## [v1.0.3] - 2024-02-22
 
 ### Added
