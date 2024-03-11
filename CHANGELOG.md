@@ -1,21 +1,28 @@
 # Change log
 
+## [v1.0.5] - 2024-02-22
+
+### Fixed
+- checkzfs_local parameter
+
 ## [v1.0.4] - 2024-02-22
 
 ### Added
-- Fix download link in README.md
-- Add checkzfs_local parameter to leave --source parameter empty
-- Fix logrotate config
+- checkzfs_local parameter to leave --source parameter empty
+
+### Fixed
+- download link in README.md
+- logrotate config
 
 ## [v1.0.3] - 2024-02-22
 
 ### Added
-- Add sshport to checkzfs command
-- Add checkzfs spool options to default config
+- sshport to checkzfs command
+- checkzfs spool options to default config
 
 ## [v1.0.2] - 2024-02-21
 
-### Added
+### Fixed
 - Fix checkzfs call and log message
 
 ## [v1.0.1] - 2024-02-11
