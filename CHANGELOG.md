@@ -1,5 +1,10 @@
 # Change log
 
+## [v1.0.6] - 2024-02-22
+
+### Fixed
+- fix scp command to move checkzfs output to spool dir on source host
+
 ## [v1.0.5] - 2024-02-22
 
 ### Fixed
