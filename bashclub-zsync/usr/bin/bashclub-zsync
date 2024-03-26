@@ -330,7 +330,7 @@ if [ $checkzfs_disabled -eq 0 ]; then
     if [ $checkzfs_spool -eq 0 ]; then
         $mv /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix} /var/lib/check_mk_agent/spool/
     else
-        $scp /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix} ${target}:/var/lib/check_mk_agent/spool/
+        $scp -P ${zsync_sshport} /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix} ${source}:/var/lib/check_mk_agent/spool/
     fi
 fi
 
