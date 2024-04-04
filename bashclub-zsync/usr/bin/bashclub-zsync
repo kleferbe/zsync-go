@@ -3,7 +3,7 @@
 # bashclub zfs replication script
 # Author: (C) 2024 Thorsten Spille <thorsten@spille-edv.de>
 
-__version__=v1.0.6
+__version__=v1.0.7
 
 PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"
 
@@ -327,7 +327,7 @@ if [ $checkzfs_disabled -eq 0 ]; then
 
     if [[ $debug == "-v" ]]; then log "[DEBUG] Command:\n$checkzfs $c_key $c_value --output checkmk --threshold $checkzfs_max_age --maxsnapshots $checkzfs_max_snapshot_count --prefix $checkzfs_prefix --filter \"$checkzfs_filter\" >> /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}"; fi
     $checkzfs $c_key $c_value --output checkmk --threshold $checkzfs_max_age --maxsnapshots $checkzfs_max_snapshot_count --prefix $checkzfs_prefix --filter "$checkzfs_filter" >> /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix}
-    if [ $checkzfs_spool -eq 0 ]; then
+    if [ $checkzfs_spool -eq 0 ] || [ $checkzfs_spool -gt 0 ]; then
         $mv /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix} /var/lib/check_mk_agent/spool/
     else
         $scp -P ${sshport} /tmp/${checkzfs_spool_maxage}_${checkzfs_prefix} ${source}:/var/lib/check_mk_agent/spool/
