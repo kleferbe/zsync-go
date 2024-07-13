@@ -211,17 +211,17 @@ log "$exclude_list"
 log "$checkzfs_headline\ncheckzfs_filter=$checkzfs_filter\n"
 
 if ! $zfs list $target > /dev/null 2>&1 ; then
-    log "[DEBUG] $target does not exist. Creating..."
+    if [[ $debug == "-v" ]]; then log "[DEBUG] $target does not exist. Creating..."; fi
     $zfs create -o canmount=noauto -o com.sun:auto-snapshot=false $target
 else
-    log "[DEBUG] $target exists, check auto-snapshot..."
+    if [[ $debug == "-v" ]]; then log "[DEBUG] $target exists, check auto-snapshot...";fi
     if [[ $($zfs get -H -o value,source com.sun:auto-snapshot $target) != "false	local" ]]; then
         $zfs set com.sun:auto-snapshot=false $target
     fi
 fi
 
 if [ $zfs_auto_snapshot_keep -gt 1 ]; then
-    log "[DEBUG] Running zfs-auto-snapshot"
+    if [[ $debug == "-v" ]]; then log "[DEBUG] Running zfs-auto-snapshot"; fi
     $ssh $sshcipher $zsync_sshport $source "which zfs-auto-snapshot > /dev/null || exit 0 ; zfs-auto-snapshot --quiet --syslog --label=$zfs_auto_snapshot_label --keep=$zfs_auto_snapshot_keep //"
     if [[ $snapshot_filter == "" ]]; then
         snapshot_filter="$zfs_auto_snapshot_label"
