@@ -1,5 +1,5 @@
 #!/bin/bash
 
 if [ -f /etc/bashclub/zsync.conf ]; then
-  mv /etc/bashclub/zsync.conf.backup_$(date +%Y-%m-%d)
+  mv /etc/bashclub/zsync.conf /etc/bashclub/zsync.conf.backup_$(date +%Y-%m-%d)
 fi
