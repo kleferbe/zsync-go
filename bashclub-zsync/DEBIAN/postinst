@@ -16,9 +16,5 @@ if [ -f /etc/logrotate.d/bashclub_zsync ]; then
   rm -f /etc/logrotate.d/bashclub_zsync
 fi
 
-if [ -f /etc/bashclub/zsync.conf ]; then
-  mv /etc/bashclub/zsync.conf.backup_$(date +%Y-%m-%d)
-fi
-
 chown root:root /etc/logrotate.d/bashclub-zsync
 chmod 644 /etc/logrotate.d/bashclub-zsync
