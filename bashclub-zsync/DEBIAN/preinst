@@ -10,3 +10,7 @@ if ! dpkg -l bashclub-zsync  > /dev/null 2>&1; then
         chmod -x ${zsync}.legacy
     fi
 fi
+
+if [ -f /etc/bashclub/zsync.conf ] && [ ! -f /etc/bashclub/zsync.conf.backup_$(date +%Y-%m-%d) ] ; then
+  cp /etc/bashclub/zsync.conf /etc/bashclub/zsync.conf.backup_$(date +%Y-%m-%d)
+fi
