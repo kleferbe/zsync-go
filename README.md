@@ -1,5 +1,3 @@
----- THIS IS A CLONE OF THE ORIGINAL REPOSITORY ON git.bashclub.org ----
-
 # zsync
 
 ZFS replication script by Thorsten Spille <thorsten@spille-edv.de>
