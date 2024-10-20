@@ -71,6 +71,12 @@ checkzfs_max_age=1500,6000
 
 # set checkzfs maximum count of snapshots per dataset (comma separated => warn,crit)
 checkzfs_max_snapshot_count=150,165
+
+# set where to move the checkzfs output (0 = local machine, 1 = source machine)
+checkzfs_spool=0
+
+# set maxmimum age of checkzfs data in seconds (hourly = 3900, daily = 87000)
+checkzfs_spool_maxage=87000
 ~~~
 
 ### Define a cronjob
