@@ -1,6 +1,9 @@
 #!/bin/bash
-
+#
 # ZFS Snapshot Management Script
+# Author: (C) 2024 Thorsten Spille <thorsten@spille-edv.de>
+
+__version__=v1.0.0
 
 # Function to display usage information
 usage() {
