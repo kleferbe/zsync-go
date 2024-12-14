@@ -22,6 +22,9 @@ zfs_auto_snapshot_keep=0
 # make snapshot via zfs-auto-snapshot before replication
 zfs_auto_snapshot_label="backup"
 
+# select the zfs auto snapshot engine (zfs-auto-snapshot = "zas" or remote-snapshot-manager = "internal")
+zfs_auto_snapshot_engine="zas"
+
 # disable checkzfs with value > 0
 checkzfs_disabled=0
 
