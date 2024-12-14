@@ -68,7 +68,7 @@ zfs_cmd="zfs"
 if [[ -n "$ssh_host" ]]; then
     # Test SSH connection before proceeding
     debug "Testing SSH connection to $ssh_host on port $ssh_port"
-    ssh -q -o BatchMode=yes -o ConnectTimeout=5 -p "$ssh_port" "$ssh_host" exit
+    ssh -q -o PasswordAuthentication=no -p "$ssh_port" "$ssh_host" exit
     if [[ $? -ne 0 ]]; then
         log "Error: Unable to connect to $ssh_host on port $ssh_port. Ensure SSH access is configured correctly."
         exit 1
