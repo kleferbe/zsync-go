@@ -21,6 +21,7 @@ chmod 755 $package/DEBIAN/p*
 
 # remove bashclub-zsync-config from package
 rm $package/usr/bin/bashclub-zsync-config
+rm $package/usr/bin/bashclub-zsync.py
 
 # add license and changelog
 mkdir -p ./$package/usr/share/doc/$package/copyright
