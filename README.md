@@ -2,10 +2,10 @@
 
 ZFS replication script by Thorsten Spille <thorsten@spille-edv.de>
 - replicates ZFS filesystems/volumes with user parameter bashclub:zsync (or custom name) configured
-- creates optional snapshot before replication (required zfs-auto-znapshot)
+- creates optional snapshot before replication (via zfs-auto-snapshot or included remote-snapshot-manager)
 - parameter setting uses zfs hierarchy on source
 - mirrored replication with existing snapshots (filtered by snapshot_filter)
-- pull/local replication only
+- pull replication only
 - auto creates full path on target pool, enforce com.sun:auto-snapshot=false, inherits mountpoint and sets canmount=noauto
 - raw replication
 - tested on Proxmox VE 7.x/8.x
@@ -25,7 +25,10 @@ apt install bashclub-zsync
 ~~~
 wget -q --no-cache -O /usr/bin/bashclub-zsync https://gitlab.bashclub.org/bashclub/zsync/-/raw/main/bashclub-zsync/usr/bin/bashclub-zsync
 chmod +x /usr/bin/bashclub-zsync
-bashclub-zsync
+
+# optional: download remote-snapshot-manager
+wget -q --no-cache -O /usr/bin/remote-snapshot-manager https://gitlab.bashclub.org/bashclub/zsync/-/raw/main/bashclub-zsync/usr/bin/remote-snapshot-manager
+chmod +x /usr/bin/remote-snapshot-manager
 ~~~
 
 ## Documentation
@@ -33,7 +36,8 @@ bashclub-zsync
 
 
 ## Configuration
-After first execution adjust the default config file `/etc/bashclub/zsync.conf`:
+After first execution bashclub-zsync will create `/etc/bashclub/zsync.conf` if no configuration parameter is given and file not exists.
+The Debian installation package provides `/etc/bashclub/zsync.conf.example` with the default values.
 
 ~~~
 # replication target path on local machine 
@@ -59,6 +63,9 @@ zfs_auto_snapshot_keep=0
 
 # make snapshot via zfs-auto-snapshot before replication
 zfs_auto_snapshot_label="backup"
+
+# select snapshot engine: "zas" or "internal"
+zfs_auto_snapshot_engine="zas"
 
 # disable checkzfs with value > 0
 checkzfs_disabled=0
@@ -91,6 +98,17 @@ File: /etc/cron.hourly/bashclub-zsync
 ~~~
 /usr/bin/bashclub-zsync -c /etc/bashclub/zsync.conf > /var/log/bashclub-zsync/zsync.log
 ~~~
+
+# Roadmap
+
+Following features are on the wishlist:
+- Local replication without SSH connections
+- Removable device support (Autostart on connect, remove when finished)
+- E-Mail notifications
+- Internal verification logic for checkzfs replacement
+- Parallel replication (multi-threaded, per dataset)
+- Resume replication after failure caused by changes on source
+
 
 # Author
 
