@@ -3,7 +3,7 @@
 # bashclub zfs replication script
 # Author: (C) 2024 Thorsten Spille <thorsten@spille-edv.de>
 
-__version__=v1.0.15
+__version__=v1.0.16
 
 PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"
 
@@ -21,6 +21,7 @@ sed=$(which sed)
 zfs_auto_snapshot=$(which zfs-auto-snapshot)
 checkzfs=$(which checkzfs)
 mv=$(which mv)
+rsm=$(which remote-snapshot-manager)
 
 rc=0
 debug=
@@ -52,6 +53,9 @@ zfs_auto_snapshot_keep=0
 
 # make snapshot via zfs-auto-snapshot before replication
 zfs_auto_snapshot_label="backup"
+
+# select snapshot engine: "zas" or "internal"
+zfs_auto_snapshot_engine="zas"
 
 # disable checkzfs with value > 0
 checkzfs_disabled=0
@@ -131,6 +135,7 @@ snapshot_filter="$snapshot_filter"
 min_keep=$min_keep
 zfs_auto_snapshot_keep=$zfs_auto_snapshot_keep
 zfs_auto_snapshot_label=$zfs_auto_snapshot_label
+zfs_auto_snapshot_engine=$zfs_auto_snapshot_engine
 checkzfs_disabled=$checkzfs_disabled
 checkzfs_local=$checkzfs_local
 checkzfs_prefix=$checkzfs_prefix
@@ -147,10 +152,10 @@ if [[ $source == "" ]]; then
     log "[INFO] source is empty, switching to local mode."
     ssh=
     zsync_sshport=
-    log "[INFO] Configuration:\n\ttarget=$target\n\ttag=$tag\n\tsnapshot_filter=$snapshot_filter\n\tmin_keep=$min_keep\n\ŧzfs_auto_snapshot_keep=$zfs_auto_snapshot_keep\n\tzfs_auto_snapshot_label=$zfs_auto_snapshot_label\n\tcheckzfs_disabled=$checkzfs_disabled\n\tcheckzfs_local=$checkzfs_local\n\tcheckzfs_prefix=$checkzfs_prefix\n\tcheckzfs_max_age=$checkzfs_max_age\n\tcheckzfs_max_snapshot_count=$checkzfs_max_snapshot_count\n\tcheckzfs_spool=$checkzfs_spool\n\tcheckzfs_spool_maxage=$checkzfs_spool_maxage\n"
+    log "[INFO] Configuration:\n\ttarget=$target\n\ttag=$tag\n\tsnapshot_filter=$snapshot_filter\n\tmin_keep=$min_keep\n\ŧzfs_auto_snapshot_keep=$zfs_auto_snapshot_keep\n\tzfs_auto_snapshot_label=$zfs_auto_snapshot_label\n\tzfs_auto_snapshot_engine=$zfs_auto_snapshot_engine\n\tcheckzfs_disabled=$checkzfs_disabled\n\tcheckzfs_local=$checkzfs_local\n\tcheckzfs_prefix=$checkzfs_prefix\n\tcheckzfs_max_age=$checkzfs_max_age\n\tcheckzfs_max_snapshot_count=$checkzfs_max_snapshot_count\n\tcheckzfs_spool=$checkzfs_spool\n\tcheckzfs_spool_maxage=$checkzfs_spool_maxage\n"
 else
     zsync_sshport=-p$sshport
-    log "[INFO] Configuration:\n\ttarget=$target\n\tsource=$source\n\tsshport=$sshport\n\ttag=$tag\n\tsnapshot_filter=$snapshot_filter\n\tmin_keep=$min_keep\n\tzfs_auto_snapshot_keep=$zfs_auto_snapshot_keep\n\tzfs_auto_snapshot_label=$zfs_auto_snapshot_label\n\tcheckzfs_disabled=$checkzfs_disabled\n\tcheckzfs_local=$checkzfs_local\n\tcheckzfs_prefix=$checkzfs_prefix\n\tcheckzfs_max_age=$checkzfs_max_age\n\tcheckzfs_max_snapshot_count=$checkzfs_max_snapshot_count\n\tcheckzfs_spool=$checkzfs_spool\n\tcheckzfs_spool_maxage=$checkzfs_spool_maxage\n"
+    log "[INFO] Configuration:\n\ttarget=$target\n\tsource=$source\n\tsshport=$sshport\n\ttag=$tag\n\tsnapshot_filter=$snapshot_filter\n\tmin_keep=$min_keep\n\tzfs_auto_snapshot_keep=$zfs_auto_snapshot_keep\n\tzfs_auto_snapshot_label=$zfs_auto_snapshot_label\n\tzfs_auto_snapshot_engine=$zfs_auto_snapshot_engine\n\tcheckzfs_disabled=$checkzfs_disabled\n\tcheckzfs_local=$checkzfs_local\n\tcheckzfs_prefix=$checkzfs_prefix\n\tcheckzfs_max_age=$checkzfs_max_age\n\tcheckzfs_max_snapshot_count=$checkzfs_max_snapshot_count\n\tcheckzfs_spool=$checkzfs_spool\n\tcheckzfs_spool_maxage=$checkzfs_spool_maxage\n"
 fi
 
 controlmaster=-oControlMaster=auto
@@ -225,8 +230,11 @@ else
 fi
 
 if [ $zfs_auto_snapshot_keep -gt 1 ]; then
-    if [[ $debug == "-v" ]]; then log "[DEBUG] Running zfs-auto-snapshot"; fi
-    $ssh $controlmaster $controlpath $controlpersist $sshcipher $zsync_sshport $source "which zfs-auto-snapshot > /dev/null || exit 0 ; zfs-auto-snapshot --quiet --syslog --label=$zfs_auto_snapshot_label --keep=$zfs_auto_snapshot_keep //"
+    if [[ $zfs_auto_snapshot_engine == "zas" ]]; then
+        if [[ $debug == "-v" ]]; then log "[DEBUG] Running zfs-auto-snapshot"; fi
+        $ssh $controlmaster $controlpath $controlpersist $sshcipher $zsync_sshport $source "which zfs-auto-snapshot > /dev/null || exit 0 ; zfs-auto-snapshot --quiet --syslog --label=$zfs_auto_snapshot_label --keep=$zfs_auto_snapshot_keep //"
+    fi
+
     if [[ $snapshot_filter == "" ]]; then
         snapshot_filter="$zfs_auto_snapshot_label"
     else
@@ -243,6 +251,13 @@ for name in "${syncvols[@]}"; do
     else
         mp=
         cm=
+    fi
+
+    if [ $zfs_auto_snapshot_keep -gt 1 ]; then
+        if [[ $zfs_auto_snapshot_engine == "internal" ]]; then
+            if [[ $debug == "-v" ]]; then log "[DEBUG] Running remote-snapshot-manager"; fi
+            $rsm $debug -d $name -k $zfs_auto_snapshot_keep -l $zfs_auto_snapshot_label -h $source -p $sshport
+        fi
     fi
 
     if [[ $($ssh $controlmaster $controlpath $controlpersist $sshcipher $zsync_sshport $source "zfs list -H -t snapshot -o name -S creation $name 2>/dev/null | grep -E \"@.*($snapshot_filter)\" | wc -l | tr -d ' '") -gt 0 ]]; then
