@@ -1,0 +1,48 @@
+#!/bin/bash
+#
+# Run bashclub-zsync with removable disk
+
+set -euo pipefail
+
+if [ -f $1 ]; then
+  source $1
+else
+  echo "Configuration file $1 not found."
+  exit 1
+fi
+
+pool=$(echo $target | cut -d'/' -f1)
+timestamp=$(date +"%Y-%m-%d-%H%M")
+
+echo "Starting zsync-autorun for pool $pool"
+
+sleep 0.5
+
+if /usr/sbin/zpool import | grep -m1 $pool > /dev/null 2>&1 ; then
+  echo "Importing zpool $pool"
+  /usr/sbin/zpool import -f $pool
+else
+  echo "No importable zfs pool found"
+  exit 1
+fi
+
+guid=$(zpool get guid -H -o value $pool)
+
+sleep 0.5
+
+if /usr/bin/bashclub-zsync -d -c $1 > /var/log/bashclub-zsync_${pool}_${timestamp}.log ; then
+  echo "ZFS replication to removable disk $pool successful"
+else
+  echo "ZFS replication to removable disk $pool failed"
+fi
+
+echo "Syncing $pool"
+zpool sync $pool
+
+echo "Ecpoting $pool"
+zpool export $pool
+
+echo "Ejecting disk"
+udisksctl power-off --block-device /dev/$(ls -la /dev/disk/by-uuid/$uuid | rev | cut -d'/' -f1 | rev)
+
+echo "Finished"
