@@ -1,0 +1,2 @@
+# Insert the zfs pool guid of the USB disk
+# KERNEL=="sd?1", ACTION=="add", SUBSYSTEMS=="block", ENV{ID_FS_UUID}=="<zfs pool guid>", ENV{SYSTEMD_WANTS}+="zsync-autorun@%E{ID_FS_LABEL}.service"
