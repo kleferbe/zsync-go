@@ -13,6 +13,8 @@ chown root:root /usr/bin/bashclub-zsync
 chmod 755 /usr/bin/bashclub-zsync
 chown root:root /usr/bin/remote-snapshot-manager
 chmod 755 /usr/bin/remote-snapshot-manager
+chown root:root /usr/bin/zsync-autorun
+chmod 755 /usr/bin/zsync-autorun
 
 if [ -f /etc/logrotate.d/bashclub_zsync ]; then
   rm -f /etc/logrotate.d/bashclub_zsync
