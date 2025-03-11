@@ -1,0 +1,8 @@
+[Unit]
+Description=Import zpool %i and run bashclub-zsync
+
+[Service]
+ExecStart=/usr/bin/zsync-autorun /etc/default/zsync-autorun@%i
+
+[Install]
+WantedBy=system.device
