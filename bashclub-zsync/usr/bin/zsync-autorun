@@ -15,12 +15,14 @@ pool=$(echo $target | cut -d'/' -f1)
 timestamp=$(date +"%Y-%m-%d-%H%M")
 
 echo "Starting zsync-autorun for pool $pool"
+echo "ZFS replication to removable disk $pool started at $timestamp" | mail -s "zsync-autorun - Starting replication to $pool" root@localhost
 
 sleep 0.5
 
 if /usr/sbin/zpool import | grep -m1 $pool > /dev/null 2>&1 ; then
   echo "Importing zpool $pool"
   /usr/sbin/zpool import -f $pool
+  /usr/sbin/zpool wait $pool
 else
   echo "No importable zfs pool found"
   exit 1
@@ -30,10 +32,16 @@ guid=$(zpool get guid -H -o value $pool)
 
 sleep 0.5
 
-if /usr/bin/bashclub-zsync -d -c $1 > /var/log/bashclub-zsync_${pool}_${timestamp}.log ; then
-  echo "ZFS replication to removable disk $pool successful"
+if /usr/bin/bashclub-zsync -d -c $1 > /var/log/bashclub-zsync/zsync-autorun_${pool}.log ; then
+  subject="zsync-autorun - Replication succeeded for $pool"
+  success="ZFS replication to removable disk $pool successful
+Started: $timestamp
+Finished: $(date +%Y-%m-%d-%H%M)"
 else
-  echo "ZFS replication to removable disk $pool failed"
+  subject="zsync-autorun - Replication failed for $pool"
+  success="ZFS replication to removable disk $pool failed
+Started: $timestamp
+Finished: $(date +%Y-%m-%d-%H%M)"
 fi
 
 echo "Syncing $pool"
@@ -43,6 +51,8 @@ echo "Ecpoting $pool"
 zpool export $pool
 
 echo "Ejecting disk"
-udisksctl power-off --block-device /dev/$(ls -la /dev/disk/by-uuid/$uuid | rev | cut -d'/' -f1 | rev)
+udisksctl power-off --block-device /dev/$(ls -la /dev/disk/by-uuid/$guid | rev | cut -d'/' -f1 | rev)
+echo "$subject"
+echo "$success" | mail -s "$subject" root@localhost
 
 echo "Finished"
