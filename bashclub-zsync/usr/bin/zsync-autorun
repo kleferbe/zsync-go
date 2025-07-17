@@ -41,18 +41,35 @@ else
   subject="zsync-autorun - Replication failed for $pool"
   success="ZFS replication to removable disk $pool failed
 Started: $timestamp
-Finished: $(date +%Y-%m-%d-%H%M)"
+Finished: $(date +%Y-%m-%d-%H%M)
+
+Checkzfs output (warning or critical):
+$(grep -E "^1.*(vm|subvol)" /var/lib/check_mk_agent/spool/${checkzfs_spool_maxage}_${checkzfs_prefix})
+"
 fi
 
-echo "Syncing $pool"
+echo "Running zpool scrub"
+dayofweek=$(date +%u)
+if [[ $dayofweek -ge 5 ]]; then
+	zpool scrub $pool
+	zpool wait $pool
+fi
+
+echo "Syncing $pool" 
 zpool sync $pool
 
-echo "Ecpoting $pool"
+echo "Getting zpool status"
+success="$success
+Zpool status $pool:
+$(zpool status $pool)"
+
+echo "Exporting $pool"
 zpool export $pool
 
 echo "Ejecting disk"
 udisksctl power-off --block-device /dev/$(ls -la /dev/disk/by-uuid/$guid | rev | cut -d'/' -f1 | rev)
-echo "$subject"
+
 echo "$success" | mail -s "$subject" root@localhost
 
 echo "Finished"
+
