@@ -1,0 +1,63 @@
+# currently no script, just a guide to format you removable disk
+
+# please fill the variables:
+
+disk=/dev/sdj
+label=usb-backup3
+
+# ensure required packages are installed
+
+apt install cryptsetup yubikey-manager udisks2 zfsutils-linux
+
+# wipe disk, create new partition table and partition
+wipefs -a ${disk}
+sgdisk --zap-all ${disk}
+sgdisk -o ${disk}
+sgdisk -n 1:0:0 -t 1:8300 ${disk}
+
+# create encryption key
+dd if=/dev/urandom of=/etc/bashclub/${label}.key bs=1 count=64
+chmod 600 /etc/bashclub/${label}.key
+
+# create luks partition
+cryptsetup luksFormat ${disk} --label=${label} --key-file=/etc/bashclub/${label}.key
+
+# decrypt luks partition
+cryptsetup open ${disk} backup_crypt --key-file /etc/bashclub/${label}.key
+
+# create zpool
+zpool create -o ashift=12 -O com.sun:auto-snapshot=false ${label} /dev/mapper/${label}
+
+# export zpool
+zpool export ${label}
+
+# unmount luks
+cryptsetup close ${disk}
+
+# power-off disk
+udisksctl power-off --block-device ${disk}
+
+
+### add keys to luks partition (max. 8)
+
+# yubikey mit static password konfigurieren
+# slot 1 or 2
+# slot 1 = push button short
+# slot 2 = push button for at least 2 seconds
+# -g = generate
+ykman otp static -g 1
+
+# add yubikey password as luks key to your disk
+cryptsetup luksAddKey ${disk} --key-file /etc/bashclub/${label}.key
+# insert yubikey and push button to set password (2 times)
+
+
+#### create udev rule
+
+
+guid=$(blkid | grep ${label})
+
+
+cat << EOF > /etc/udev/rules.d/90-automount-zsync-${label}.rules
+KERNEL=="sd?1", ACTION=="add", SUBSYSTEMS=="block", ENV{ID_FS_UUID}=="<zfs pool guid>", ENV{SYSTEMD_WANTS}+="zsync-autorun@%E{ID_FS_LABEL}.service"
+EOF
