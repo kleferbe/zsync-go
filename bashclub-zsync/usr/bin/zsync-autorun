@@ -19,7 +19,23 @@ echo "ZFS replication to removable disk $pool started at $timestamp" | mail -s "
 
 sleep 0.5
 
+disk=$(/usr/sbin/blkid | grep $pool | cut -d':' -f1)
+luks=0
+
+if /usr/sbin/blkid | grep $pool | grep LUKS > /dev/null 2<&1; then
+  luks=1
+  echo "Decrypting LUKS volume"
+  if [ ! -f /etc/bashclub/${pool}.key ]; then
+    echo "No keyfile found at /etc/bashclub/${pool}.key - Exiting..."
+    exit 1
+  fi
+  /usr/sbin/cryptsetup open $disk $pool --key-file /etc/bashclub/${pool}.key
+fi
+
+sleep 0.5
+
 if /usr/sbin/zpool import | grep -m1 $pool > /dev/null 2>&1 ; then
+  
   echo "Importing zpool $pool"
   /usr/sbin/zpool import -f $pool
   /usr/sbin/zpool wait $pool
@@ -66,8 +82,13 @@ $(zpool status $pool)"
 echo "Exporting $pool"
 zpool export $pool
 
+if [ $luks -gt 0 ]; then
+  echo "Closing crypt volume"
+  /usr/sbin/cryptsetup close $pool
+fi
+
 echo "Ejecting disk"
-udisksctl power-off --block-device /dev/$(ls -la /dev/disk/by-uuid/$guid | rev | cut -d'/' -f1 | rev)
+udisksctl power-off --block-device ${disk::-1}
 
 echo "$success" | mail -s "$subject" root@localhost
 
