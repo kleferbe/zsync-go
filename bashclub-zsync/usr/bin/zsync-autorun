@@ -35,7 +35,7 @@ fi
 sleep 0.5
 
 if /usr/sbin/zpool import | grep -m1 $pool > /dev/null 2>&1 ; then
-  
+
   echo "Importing zpool $pool"
   /usr/sbin/zpool import -f $pool
   /usr/sbin/zpool wait $pool
@@ -67,11 +67,11 @@ fi
 echo "Running zpool scrub"
 dayofweek=$(date +%u)
 if [[ $dayofweek -ge 5 ]]; then
-	zpool scrub $pool
-	zpool wait $pool
+        zpool scrub $pool
+        zpool wait $pool
 fi
 
-echo "Syncing $pool" 
+echo "Syncing $pool"
 zpool sync $pool
 
 echo "Getting zpool status"
@@ -93,4 +93,3 @@ udisksctl power-off --block-device ${disk::-1}
 echo "$success" | mail -s "$subject" root@localhost
 
 echo "Finished"
-
