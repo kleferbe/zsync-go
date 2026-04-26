@@ -61,6 +61,15 @@ func WritePlanText(w io.Writer, plan *Plan) {
 				fmt.Fprintf(w, "    → %s\n", s.ShortName)
 			}
 
+		case ActionReinitialize:
+			fmt.Fprintf(w, "  Type:    %s\n", dp.DatasetType)
+			fmt.Fprintf(w, "  Action:  reinitialize (no common snapshot)\n")
+			fmt.Fprintf(w, "  Rename:  %s → %s\n", dp.TargetDataset, dp.RenameExistingTarget)
+			fmt.Fprintf(w, "  Send %d snapshot(s) (first full, rest incremental):\n", len(dp.SendSnapshots))
+			for _, s := range dp.SendSnapshots {
+				fmt.Fprintf(w, "    → %s\n", s.ShortName)
+			}
+
 		case ActionError:
 			fmt.Fprintf(w, "  ERROR: %s\n", dp.Reason)
 		}

@@ -88,6 +88,97 @@ func TestBuildPlan_InitialReplication(t *testing.T) {
 	}
 }
 
+func TestBuildPlan_InitialTrimmed(t *testing.T) {
+	// Source has 6 daily snapshots but min_keep for daily is 3.
+	// Only the newest 3 should be sent.
+	srcState := &SourceState{
+		Datasets: []SourceDatasetInfo{{
+			Name: "tank/data", Type: zfs.Filesystem,
+			Snapshots: []zfs.Snapshot{
+				snap("tank/data", "daily-2025-01-10", "d10", -48),
+				snap("tank/data", "daily-2025-01-11", "d11", -24),
+				snap("tank/data", "daily-2025-01-12", "d12", 0),
+				snap("tank/data", "daily-2025-01-13", "d13", 24),
+				snap("tank/data", "daily-2025-01-14", "d14", 48),
+				snap("tank/data", "daily-2025-01-15", "d15", 72),
+			},
+		}},
+	}
+	tgtState := &TargetState{
+		RootDataset: "backup/replicas",
+		RootExists:  true,
+		Datasets: map[string]TargetDatasetInfo{
+			"backup/replicas/tank/data": {Name: "backup/replicas/tank/data", Exists: false},
+		},
+	}
+
+	plan := BuildPlan(srcState, tgtState, defaultCfg())
+	dp := plan.Datasets[0]
+
+	if dp.Action != ActionInitial {
+		t.Fatalf("action = %v, want initial", dp.Action)
+	}
+	// min_keep=3 for daily → only newest 3 (d13, d14, d15).
+	if len(dp.SendSnapshots) != 3 {
+		t.Fatalf("send snapshots len = %d, want 3", len(dp.SendSnapshots))
+	}
+	if dp.SendSnapshots[0].GUID != "d13" {
+		t.Errorf("first send = %s, want d13", dp.SendSnapshots[0].GUID)
+	}
+	if dp.SendSnapshots[2].GUID != "d15" {
+		t.Errorf("last send = %s, want d15", dp.SendSnapshots[2].GUID)
+	}
+}
+
+func TestBuildPlan_InitialMultiInterval(t *testing.T) {
+	// Source has daily and weekly snapshots. Trimming keeps newest per interval.
+	srcState := &SourceState{
+		Datasets: []SourceDatasetInfo{{
+			Name: "tank/data", Type: zfs.Filesystem,
+			Snapshots: []zfs.Snapshot{
+				snap("tank/data", "daily-2025-01-10", "d10", 0),
+				snap("tank/data", "weekly-2025-01-10", "w10", 1),
+				snap("tank/data", "daily-2025-01-11", "d11", 24),
+				snap("tank/data", "daily-2025-01-12", "d12", 48),
+				snap("tank/data", "daily-2025-01-13", "d13", 72),
+				snap("tank/data", "weekly-2025-01-17", "w17", 96),
+				snap("tank/data", "daily-2025-01-14", "d14", 120),
+				snap("tank/data", "daily-2025-01-15", "d15", 144),
+			},
+		}},
+	}
+	tgtState := &TargetState{
+		RootDataset: "backup/replicas",
+		RootExists:  true,
+		Datasets: map[string]TargetDatasetInfo{
+			"backup/replicas/tank/data": {Name: "backup/replicas/tank/data", Exists: false},
+		},
+	}
+
+	// daily min_keep=3, weekly min_keep=3 → keep newest 3 daily (d13,d14,d15)
+	// + newest 2 weekly (w10,w17, both kept since only 2 exist ≤ 3).
+	// Union sorted by creation: w10, d13, w17, d14, d15
+	plan := BuildPlan(srcState, tgtState, defaultCfg())
+	dp := plan.Datasets[0]
+
+	if dp.Action != ActionInitial {
+		t.Fatalf("action = %v, want initial", dp.Action)
+	}
+	if len(dp.SendSnapshots) != 5 {
+		t.Fatalf("send snapshots len = %d, want 5", len(dp.SendSnapshots))
+	}
+	// Verify creation-time order is preserved.
+	if dp.SendSnapshots[0].GUID != "w10" {
+		t.Errorf("[0] = %s, want w10", dp.SendSnapshots[0].GUID)
+	}
+	if dp.SendSnapshots[1].GUID != "d13" {
+		t.Errorf("[1] = %s, want d13", dp.SendSnapshots[1].GUID)
+	}
+	if dp.SendSnapshots[4].GUID != "d15" {
+		t.Errorf("[4] = %s, want d15", dp.SendSnapshots[4].GUID)
+	}
+}
+
 func TestBuildPlan_IncrementalReplication(t *testing.T) {
 	srcState := &SourceState{
 		Datasets: []SourceDatasetInfo{{
@@ -192,8 +283,57 @@ func TestBuildPlan_NoCommonSnapshot(t *testing.T) {
 	plan := BuildPlan(srcState, tgtState, defaultCfg())
 	dp := plan.Datasets[0]
 
-	if dp.Action != ActionError {
-		t.Errorf("action = %v, want error", dp.Action)
+	if dp.Action != ActionReinitialize {
+		t.Errorf("action = %v, want reinitialize", dp.Action)
+	}
+	if dp.RenameExistingTarget != "backup/replicas/tank/data-old" {
+		t.Errorf("RenameExistingTarget = %q, want %q", dp.RenameExistingTarget, "backup/replicas/tank/data-old")
+	}
+	if dp.CommonSnapshot != nil {
+		t.Errorf("common snapshot should be nil, got %+v", dp.CommonSnapshot)
+	}
+	if len(dp.SendSnapshots) != 1 {
+		t.Fatalf("send snapshots len = %d, want 1", len(dp.SendSnapshots))
+	}
+	if dp.SendSnapshots[0].GUID != "aaa" {
+		t.Errorf("send snapshot = %s, want aaa", dp.SendSnapshots[0].GUID)
+	}
+}
+
+func TestBuildPlan_ReinitializeCollision(t *testing.T) {
+	// "-old" already exists → should get "-old-2".
+	srcState := &SourceState{
+		Datasets: []SourceDatasetInfo{{
+			Name: "tank/data", Type: zfs.Filesystem,
+			Snapshots: []zfs.Snapshot{
+				snap("tank/data", "daily-2025-01-15", "aaa", 0),
+			},
+		}},
+	}
+	tgtState := &TargetState{
+		RootDataset: "backup/replicas",
+		RootExists:  true,
+		Datasets: map[string]TargetDatasetInfo{
+			"backup/replicas/tank/data": {
+				Name: "backup/replicas/tank/data", Exists: true,
+				Snapshots: []zfs.Snapshot{
+					snap("backup/replicas/tank/data", "daily-2025-01-10", "zzz", 0),
+				},
+			},
+			"backup/replicas/tank/data-old": {
+				Name: "backup/replicas/tank/data-old", Exists: true,
+			},
+		},
+	}
+
+	plan := BuildPlan(srcState, tgtState, defaultCfg())
+	dp := plan.Datasets[0]
+
+	if dp.Action != ActionReinitialize {
+		t.Fatalf("action = %v, want reinitialize", dp.Action)
+	}
+	if dp.RenameExistingTarget != "backup/replicas/tank/data-old-2" {
+		t.Errorf("RenameExistingTarget = %q, want %q", dp.RenameExistingTarget, "backup/replicas/tank/data-old-2")
 	}
 }
 

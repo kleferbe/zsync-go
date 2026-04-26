@@ -1,6 +1,8 @@
 package replication
 
 import (
+	"fmt"
+
 	"github.com/kleferbe/zsync/internal/config"
 	"github.com/kleferbe/zsync/internal/zfs"
 	"github.com/samber/lo"
@@ -20,6 +22,9 @@ const (
 	ActionInitial
 	// ActionIncremental means one or more incremental sends are required.
 	ActionIncremental
+	// ActionReinitialize means the target exists but has no common snapshot.
+	// The existing target dataset will be renamed and a fresh initial send performed.
+	ActionReinitialize
 	// ActionError means replication is not possible without manual intervention.
 	ActionError
 )
@@ -32,6 +37,8 @@ func (a ActionType) String() string {
 		return "initial"
 	case ActionIncremental:
 		return "incremental"
+	case ActionReinitialize:
+		return "reinitialize"
 	case ActionError:
 		return "error"
 	default:
@@ -76,6 +83,10 @@ type DatasetPlan struct {
 	// all subsequent entries are sent incrementally based on the previous.
 	SendSnapshots []zfs.Snapshot
 
+	// RenameExistingTarget is set for ActionReinitialize: the existing target
+	// dataset will be renamed to this path before sending.
+	RenameExistingTarget string
+
 	// --- Cleanup fields ---
 
 	// Cleanup contains per-interval cleanup instructions for the target.
@@ -96,35 +107,47 @@ type IntervalCleanup struct {
 // Plan builder
 // ---------------------------------------------------------------------------
 
-// BuildPlan analyses source and target state, matches datasets, and produces
-// a replication plan. This is a pure function – it does not execute any ZFS
+// PlanBuilder holds the collected state needed to produce a replication plan.
+type PlanBuilder struct {
+	Source *SourceState
+	Target *TargetState
+	Config *config.Config
+}
+
+// Build analyses source and target state, matches datasets, and produces
+// a replication plan. This is a pure method – it does not execute any ZFS
 // commands.
-func BuildPlan(src *SourceState, tgt *TargetState, cfg *config.Config) *Plan {
+func (pb *PlanBuilder) Build() *Plan {
 	plan := &Plan{
-		NeedTargetRoot:    !tgt.RootExists,
-		TargetRootDataset: tgt.RootDataset,
+		NeedTargetRoot:    !pb.Target.RootExists,
+		TargetRootDataset: pb.Target.RootDataset,
 	}
 
-	filter := cfg.SnapshotFilter
-
-	plan.Datasets = lo.Map(src.Datasets, func(srcDS SourceDatasetInfo, _ int) DatasetPlan {
-		tgtName := TargetDatasetName(cfg.Target.Dataset, srcDS.Name)
-		tgtDS, found := tgt.Datasets[tgtName]
+	plan.Datasets = lo.Map(pb.Source.Datasets, func(srcDS SourceDatasetInfo, _ int) DatasetPlan {
+		tgtName := TargetDatasetName(pb.Config.Target.Dataset, srcDS.Name)
+		tgtDS, found := pb.Target.Datasets[tgtName]
 		if !found {
 			tgtDS = TargetDatasetInfo{Name: tgtName, Exists: false}
 		}
-		return buildDatasetPlan(srcDS, tgtDS, filter)
+		return pb.buildDatasetPlan(srcDS, tgtDS)
 	})
 
 	return plan
 }
 
-func buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo, filter config.SnapshotFilter) DatasetPlan {
+// BuildPlan is a convenience wrapper around PlanBuilder.Build.
+func BuildPlan(src *SourceState, tgt *TargetState, cfg *config.Config) *Plan {
+	return (&PlanBuilder{Source: src, Target: tgt, Config: cfg}).Build()
+}
+
+func (pb *PlanBuilder) buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo) DatasetPlan {
 	dp := DatasetPlan{
 		SourceDataset: srcDS.Name,
 		TargetDataset: tgtDS.Name,
 		DatasetType:   srcDS.Type,
 	}
+
+	filter := pb.Config.SnapshotFilter
 
 	// Filter source snapshots to only those matching snapshot_filter.
 	srcFiltered := FilterSnapshots(srcDS.Snapshots, filter)
@@ -137,9 +160,10 @@ func buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo, filter c
 
 	if !tgtDS.Exists {
 		// Target does not exist → initial replication.
-		// CommonSnapshot stays nil; all matching snapshots go into SendSnapshots.
+		// Only send the newest min_keep snapshots per interval to avoid
+		// transferring snapshots that would be cleaned up immediately.
 		dp.Action = ActionInitial
-		dp.SendSnapshots = srcFiltered
+		dp.SendSnapshots = pb.trimForInitial(srcFiltered)
 		dp.Reason = "target does not exist"
 		return dp
 	}
@@ -156,8 +180,11 @@ func buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo, filter c
 	})
 
 	if !found {
-		dp.Action = ActionError
-		dp.Reason = "no common snapshot found between source and target — manual intervention required"
+		// No common snapshot → reinitialize: rename existing target, send fresh.
+		dp.Action = ActionReinitialize
+		dp.RenameExistingTarget = uniqueName(tgtDS.Name, "old", lo.Keys(pb.Target.Datasets))
+		dp.SendSnapshots = pb.trimForInitial(srcFiltered)
+		dp.Reason = "no common snapshot — target will be renamed and reinitialized"
 		return dp
 	}
 
@@ -178,7 +205,7 @@ func buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo, filter c
 	dp.Reason = "incremental replication"
 
 	// Build cleanup plan for target.
-	dp.Cleanup = buildCleanup(tgtDS, dp.SendSnapshots, filter)
+	dp.Cleanup = pb.buildCleanup(tgtDS, dp.SendSnapshots)
 
 	return dp
 }
@@ -187,22 +214,17 @@ func buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo, filter c
 // It accounts for the snapshots that will be added by the sync (sendSnapshots)
 // so that exactly entry.MinKeep snapshots remain per interval after sync + cleanup.
 // Only existing target snapshots are candidates for deletion (oldest first).
-func buildCleanup(tgtDS TargetDatasetInfo, sendSnapshots []zfs.Snapshot, filter config.SnapshotFilter) []IntervalCleanup {
+func (pb *PlanBuilder) buildCleanup(tgtDS TargetDatasetInfo, sendSnapshots []zfs.Snapshot) []IntervalCleanup {
 	if !tgtDS.Exists || len(tgtDS.Snapshots) == 0 {
 		return nil
 	}
 
 	var cleanups []IntervalCleanup
 
-	for _, entry := range filter {
+	for _, entry := range pb.Config.SnapshotFilter {
 		tgtInterval := FilterSnapshotsByInterval(tgtDS.Snapshots, entry.Filter)
-		if len(tgtInterval) == 0 {
-			continue
-		}
-
 		incomingCount := len(FilterSnapshotsByInterval(sendSnapshots, entry.Filter))
 		totalAfterSync := len(tgtInterval) + incomingCount
-
 		excessCount := totalAfterSync - entry.MinKeep
 		if excessCount <= 0 {
 			continue
@@ -220,4 +242,46 @@ func buildCleanup(tgtDS TargetDatasetInfo, sendSnapshots []zfs.Snapshot, filter 
 	}
 
 	return cleanups
+}
+
+// trimForInitial reduces a set of filtered snapshots to at most min_keep per
+// interval. For each filter entry, only the newest entry.MinKeep snapshots
+// are retained. The result is the union of all kept snapshots, preserving
+// the original creation-time order.
+func (pb *PlanBuilder) trimForInitial(snaps []zfs.Snapshot) []zfs.Snapshot {
+	// Collect GUIDs of snapshots to keep.
+	keepGUIDs := make(map[string]struct{})
+	for _, entry := range pb.Config.SnapshotFilter {
+		matched := FilterSnapshotsByInterval(snaps, entry.Filter)
+		// Keep only the newest min_keep (= tail of the slice, since oldest first).
+		if len(matched) > entry.MinKeep {
+			matched = matched[len(matched)-entry.MinKeep:]
+		}
+		for _, s := range matched {
+			keepGUIDs[s.GUID] = struct{}{}
+		}
+	}
+
+	return lo.Filter(snaps, func(s zfs.Snapshot, _ int) bool {
+		return lo.HasKey(keepGUIDs, s.GUID)
+	})
+}
+
+// uniqueName returns a name derived from base that does not collide with any
+// entry in existing. It tries "<base>-<postfix>", then "<base>-<postfix>-2",
+// "<base>-<postfix>-3", etc.
+func uniqueName(base, postfix string, existing []string) string {
+	names := lo.SliceToMap(existing, func(s string) (string, struct{}) {
+		return s, struct{}{}
+	})
+	candidate := base + "-" + postfix
+	if !lo.HasKey(names, candidate) {
+		return candidate
+	}
+	for i := 2; ; i++ {
+		candidate = fmt.Sprintf("%s-%s-%d", base, postfix, i)
+		if !lo.HasKey(names, candidate) {
+			return candidate
+		}
+	}
 }
