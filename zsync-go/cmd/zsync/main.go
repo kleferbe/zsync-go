@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/kleferbe/zsync/internal/checkzfs"
 	"github.com/kleferbe/zsync/internal/config"
@@ -17,8 +18,14 @@ import (
 var version = "dev"
 
 func main() {
+	exePath, err := os.Executable()
+	if err != nil {
+		exePath = "."
+	}
+	defaultConfig := filepath.Join(filepath.Dir(exePath), "zsync.yaml")
+
 	var (
-		configPath = flag.String("c", "/etc/zsync/zsync.yaml", "path to configuration file")
+		configPath = flag.String("c", defaultConfig, "path to configuration file")
 		debug      = flag.Bool("d", false, "enable debug logging")
 		dryRun     = flag.Bool("dry-run", false, "build and display replication plan without executing")
 		showVer    = flag.Bool("version", false, "print version and exit")
