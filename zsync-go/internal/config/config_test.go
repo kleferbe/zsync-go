@@ -10,7 +10,6 @@ func TestLoadValidConfig(t *testing.T) {
 	yml := `
 target: 
   dataset: backup/replicas
-  min_keep: 3
 source:
   ssh:
     host: root@pve1
@@ -18,11 +17,15 @@ source:
   datasets:
     - tank
   tag: bashclub:zsync
-  snapshot_filter:
-  - hourly
-  - daily
-  - weekly
-  - monthly
+snapshot_filter:
+  - filter: hourly
+    min_keep: 3
+  - filter: daily
+    min_keep: 3
+  - filter: weekly
+    min_keep: 3
+  - filter: monthly
+    min_keep: 3
 checkzfs:
   enabled: true
   prefix: zsync
@@ -36,9 +39,6 @@ checkzfs:
 	if cfg.Target.Dataset != "backup/replicas" {
 		t.Errorf("target.dataset = %q, want %q", cfg.Target.Dataset, "backup/replicas")
 	}
-	if cfg.Target.MinKeep != 3 {
-		t.Errorf("target.min_keep = %d, want 3", cfg.Target.MinKeep)
-	}
 	if cfg.Source.SSH.Host != "root@pve1" {
 		t.Errorf("source.ssh.host = %q, want %q", cfg.Source.SSH.Host, "root@pve1")
 	}
@@ -48,11 +48,14 @@ checkzfs:
 	if cfg.Source.Tag != "bashclub:zsync" {
 		t.Errorf("source.tag = %q, want %q", cfg.Source.Tag, "bashclub:zsync")
 	}
-	if len(cfg.Source.SnapshotFilter) != 4 {
-		t.Errorf("source.snapshot_filter len = %d, want 4", len(cfg.Source.SnapshotFilter))
+	if len(cfg.SnapshotFilter) != 4 {
+		t.Errorf("snapshot_filter len = %d, want 4", len(cfg.SnapshotFilter))
 	}
-	if cfg.Source.SnapshotFilter.Regex() != "hourly|daily|weekly|monthly" {
-		t.Errorf("source.snapshot_filter regex = %q", cfg.Source.SnapshotFilter.Regex())
+	if cfg.SnapshotFilter.Regex() != "hourly|daily|weekly|monthly" {
+		t.Errorf("snapshot_filter regex = %q", cfg.SnapshotFilter.Regex())
+	}
+	if cfg.SnapshotFilter[1].MinKeep != 3 {
+		t.Errorf("snapshot_filter[daily].min_keep = %d, want 3", cfg.SnapshotFilter[1].MinKeep)
 	}
 	if !cfg.CheckZFS.Enabled {
 		t.Error("checkzfs.enabled should be true")
@@ -81,11 +84,11 @@ source:
 	if cfg.Source.SSH.Port != 22 {
 		t.Errorf("default source.ssh.port = %d, want 22", cfg.Source.SSH.Port)
 	}
-	if cfg.Target.MinKeep != 3 {
-		t.Errorf("default target.min_keep = %d, want 3", cfg.Target.MinKeep)
+	if len(cfg.SnapshotFilter) != 4 {
+		t.Errorf("default snapshot_filter len = %d, want 4", len(cfg.SnapshotFilter))
 	}
-	if len(cfg.Source.SnapshotFilter) != 4 {
-		t.Errorf("default source.snapshot_filter len = %d, want 4", len(cfg.Source.SnapshotFilter))
+	if cfg.SnapshotFilter[0].MinKeep != 3 {
+		t.Errorf("default snapshot_filter[0].min_keep = %d, want 3", cfg.SnapshotFilter[0].MinKeep)
 	}
 	if cfg.CheckZFS.Spool != "local" {
 		t.Errorf("default checkzfs.spool = %q, want %q", cfg.CheckZFS.Spool, "local")

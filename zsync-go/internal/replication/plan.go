@@ -105,7 +105,7 @@ func BuildPlan(src *SourceState, tgt *TargetState, cfg *config.Config) *Plan {
 		TargetRootDataset: tgt.RootDataset,
 	}
 
-	filter := cfg.Source.SnapshotFilter
+	filter := cfg.SnapshotFilter
 
 	plan.Datasets = lo.Map(src.Datasets, func(srcDS SourceDatasetInfo, _ int) DatasetPlan {
 		tgtName := TargetDatasetName(cfg.Target.Dataset, srcDS.Name)
@@ -113,13 +113,13 @@ func BuildPlan(src *SourceState, tgt *TargetState, cfg *config.Config) *Plan {
 		if !found {
 			tgtDS = TargetDatasetInfo{Name: tgtName, Exists: false}
 		}
-		return buildDatasetPlan(srcDS, tgtDS, filter, cfg.Target.MinKeep)
+		return buildDatasetPlan(srcDS, tgtDS, filter)
 	})
 
 	return plan
 }
 
-func buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo, filter config.SnapshotFilter, minKeep int) DatasetPlan {
+func buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo, filter config.SnapshotFilter) DatasetPlan {
 	dp := DatasetPlan{
 		SourceDataset: srcDS.Name,
 		TargetDataset: tgtDS.Name,
@@ -145,7 +145,9 @@ func buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo, filter c
 	}
 
 	// Target exists → find most recent common snapshot via GUID.
-	tgtGUIDs := BuildGUIDIndex(tgtDS.Snapshots)
+	tgtGUIDs := lo.SliceToMap(tgtDS.Snapshots, func(s zfs.Snapshot) (string, struct{}) {
+		return s.GUID, struct{}{}
+	})
 
 	// Walk source snapshots from newest to oldest to find the most recent
 	// common snapshot.
@@ -176,60 +178,45 @@ func buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo, filter c
 	dp.Reason = "incremental replication"
 
 	// Build cleanup plan for target.
-	dp.Cleanup = buildCleanup(srcDS, tgtDS, filter, minKeep)
+	dp.Cleanup = buildCleanup(tgtDS, dp.SendSnapshots, filter)
 
 	return dp
 }
 
 // buildCleanup determines which target snapshots can be removed per interval.
-func buildCleanup(srcDS SourceDatasetInfo, tgtDS TargetDatasetInfo, filter config.SnapshotFilter, minKeep int) []IntervalCleanup {
+// It accounts for the snapshots that will be added by the sync (sendSnapshots)
+// so that exactly entry.MinKeep snapshots remain per interval after sync + cleanup.
+// Only existing target snapshots are candidates for deletion (oldest first).
+func buildCleanup(tgtDS TargetDatasetInfo, sendSnapshots []zfs.Snapshot, filter config.SnapshotFilter) []IntervalCleanup {
 	if !tgtDS.Exists || len(tgtDS.Snapshots) == 0 {
 		return nil
 	}
 
-	srcGUIDs := BuildGUIDIndex(srcDS.Snapshots)
 	var cleanups []IntervalCleanup
 
-	for _, interval := range filter {
-		tgtInterval := FilterSnapshotsByInterval(tgtDS.Snapshots, interval)
+	for _, entry := range filter {
+		tgtInterval := FilterSnapshotsByInterval(tgtDS.Snapshots, entry.Filter)
 		if len(tgtInterval) == 0 {
 			continue
 		}
 
-		srcInterval := FilterSnapshotsByInterval(srcDS.Snapshots, interval)
-		if len(srcInterval) == 0 {
+		incomingCount := len(FilterSnapshotsByInterval(sendSnapshots, entry.Filter))
+		totalAfterSync := len(tgtInterval) + incomingCount
+
+		excessCount := totalAfterSync - entry.MinKeep
+		if excessCount <= 0 {
 			continue
 		}
-		oldestSrcGUID := srcInterval[0].GUID
 
-		// On target, find the position of this GUID.
-		_, cutIdx, cutFound := lo.FindIndexOf(tgtInterval, func(ts zfs.Snapshot) bool {
-			return lo.HasKey(srcGUIDs, ts.GUID) && ts.GUID == oldestSrcGUID
+		// Delete oldest existing target snapshots, but at most all of them.
+		deleteCount := min(excessCount, len(tgtInterval))
+		toDelete := tgtInterval[:deleteCount]
+
+		cleanups = append(cleanups, IntervalCleanup{
+			Interval: entry.Filter,
+			Delete:   toDelete,
+			Keep:     totalAfterSync - deleteCount,
 		})
-
-		if !cutFound {
-			// The oldest source snapshot is not on the target — nothing to clean.
-			continue
-		}
-
-		// Everything before cutIdx is older than the oldest source snapshot.
-		candidates := tgtInterval[:cutIdx]
-		total := len(tgtInterval)
-
-		var toDelete []zfs.Snapshot
-		for _, c := range candidates {
-			if total-len(toDelete) > minKeep {
-				toDelete = append(toDelete, c)
-			}
-		}
-
-		if len(toDelete) > 0 {
-			cleanups = append(cleanups, IntervalCleanup{
-				Interval: interval,
-				Delete:   toDelete,
-				Keep:     total - len(toDelete),
-			})
-		}
 	}
 
 	return cleanups

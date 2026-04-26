@@ -19,13 +19,25 @@ const (
 	TagExclude TagValue = "exclude" // Explicitly exclude a dataset from replication.
 )
 
-// SnapshotFilter holds the list of snapshot name patterns (e.g. "hourly",
-// "daily") that determine which snapshots are eligible for replication.
-type SnapshotFilter []string
+// SnapshotFilterEntry describes a single snapshot filter with its retention policy.
+type SnapshotFilterEntry struct {
+	// Filter is the snapshot name pattern (e.g. "daily", "hourly").
+	Filter string `yaml:"filter"`
+	// MinKeep is the minimum number of snapshots to retain for this interval
+	// on the target. Defaults to 3.
+	MinKeep int `yaml:"min_keep"`
+}
+
+// SnapshotFilter holds the list of snapshot filter entries that determine
+// which snapshots are eligible for replication and how many to keep.
+type SnapshotFilter []SnapshotFilterEntry
 
 // Regex returns a compiled alternation pattern such as "hourly|daily|weekly".
 func (sf SnapshotFilter) Regex() string {
-	return strings.Join(sf, "|")
+	filters := lo.Map(sf, func(e SnapshotFilterEntry, _ int) string {
+		return e.Filter
+	})
+	return strings.Join(filters, "|")
 }
 
 // SSHConfig holds connection parameters for the source host.
@@ -64,9 +76,6 @@ type TargetConfig struct {
 	// Dataset is the ZFS dataset path on the local (backup) host under which
 	// replicated datasets are created. Example: "backup/replicas".
 	Dataset string `yaml:"dataset"`
-	// MinKeep is the minimum number of snapshots to retain per filter
-	// interval on the target.
-	MinKeep int `yaml:"min_keep"`
 }
 
 // SourceConfig groups settings that describe the replication source.
@@ -80,9 +89,6 @@ type SourceConfig struct {
 	// Tag is the ZFS user property on the source that marks datasets for
 	// replication. Defaults to "bashclub:zsync".
 	Tag string `yaml:"tag"`
-	// SnapshotFilter lists snapshot name patterns that are eligible for
-	// replication (e.g. ["hourly", "daily", "weekly", "monthly"]).
-	SnapshotFilter SnapshotFilter `yaml:"snapshot_filter"`
 }
 
 // Config is the top-level configuration for zsync.
@@ -91,6 +97,9 @@ type Config struct {
 	Target TargetConfig `yaml:"target"`
 	// Source groups settings that describe the replication source.
 	Source SourceConfig `yaml:"source"`
+	// SnapshotFilter defines which snapshots are eligible for replication
+	// and how many to keep per interval on the target.
+	SnapshotFilter SnapshotFilter `yaml:"snapshot_filter"`
 	// CheckZFS configures the optional monitoring integration.
 	CheckZFS CheckZFSConfig `yaml:"checkzfs"`
 }
@@ -100,11 +109,18 @@ func (c *Config) defaults() {
 	if c.Source.Tag == "" {
 		c.Source.Tag = "bashclub:zsync"
 	}
-	if len(c.Source.SnapshotFilter) == 0 {
-		c.Source.SnapshotFilter = SnapshotFilter{"hourly", "daily", "weekly", "monthly"}
+	if len(c.SnapshotFilter) == 0 {
+		c.SnapshotFilter = SnapshotFilter{
+			{Filter: "hourly", MinKeep: 3},
+			{Filter: "daily", MinKeep: 3},
+			{Filter: "weekly", MinKeep: 3},
+			{Filter: "monthly", MinKeep: 3},
+		}
 	}
-	if c.Target.MinKeep == 0 {
-		c.Target.MinKeep = 3
+	for i := range c.SnapshotFilter {
+		if c.SnapshotFilter[i].MinKeep == 0 {
+			c.SnapshotFilter[i].MinKeep = 3
+		}
 	}
 	if c.Source.SSH.Port == 0 {
 		c.Source.SSH.Port = 22
@@ -134,9 +150,6 @@ func (c *Config) Validate() error {
 	if strings.Contains(c.Target.Dataset, " ") {
 		return fmt.Errorf("config: target.dataset %q must not contain spaces", c.Target.Dataset)
 	}
-	if c.Target.MinKeep < 1 {
-		return fmt.Errorf("config: target.min_keep must be >= 1, got %d", c.Target.MinKeep)
-	}
 	if len(c.Source.Datasets) == 0 {
 		return fmt.Errorf("config: source.datasets must not be empty")
 	}
@@ -150,8 +163,16 @@ func (c *Config) Validate() error {
 	}); ok {
 		return fmt.Errorf("config: source dataset %q overlaps with target %q", overlap, c.Target.Dataset)
 	}
-	if len(c.Source.SnapshotFilter) == 0 {
-		return fmt.Errorf("config: source.snapshot_filter must not be empty")
+	if len(c.SnapshotFilter) == 0 {
+		return fmt.Errorf("config: snapshot_filter must not be empty")
+	}
+	for _, entry := range c.SnapshotFilter {
+		if entry.Filter == "" {
+			return fmt.Errorf("config: snapshot_filter contains entry with empty filter")
+		}
+		if entry.MinKeep < 1 {
+			return fmt.Errorf("config: snapshot_filter[%s].min_keep must be >= 1, got %d", entry.Filter, entry.MinKeep)
+		}
 	}
 	if !c.Source.SSH.IsLocal() && c.Source.SSH.Port < 1 {
 		return fmt.Errorf("config: source.ssh.port must be >= 1 when source.ssh.host is set")

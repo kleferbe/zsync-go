@@ -44,8 +44,7 @@ func main() {
 		"ssh.host", cfg.Source.SSH.Host,
 		"ssh.port", cfg.Source.SSH.Port,
 		"tag", cfg.Source.Tag,
-		"snapshot_filter", cfg.Source.SnapshotFilter.Regex(),
-		"min_keep", cfg.Target.MinKeep,
+		"snapshot_filter", cfg.SnapshotFilter.Regex(),
 		"local_mode", cfg.Source.SSH.IsLocal(),
 	)
 

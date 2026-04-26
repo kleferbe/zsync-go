@@ -2,8 +2,6 @@
 target:
   # ZFS dataset path under which replicated datasets are created.
   dataset: backup/replicas
-  # Minimum number of snapshots to keep per filter interval on the target.
-  min_keep: 3
 
 # Replication source settings.
 source:
@@ -18,13 +16,19 @@ source:
   # ZFS user property on the source that marks datasets for replication.
   # Possible values on source datasets: "all", "subvols", "exclude".
   tag: bashclub:zsync
-  # Snapshot name patterns eligible for replication.
-  # Only snapshots whose name contains one of these strings are considered.
-  snapshot_filter:
-    - hourly
-    - daily
-    - weekly
-    - monthly
+
+# Snapshot name patterns eligible for replication and retention policy.
+# Only snapshots whose name contains the filter string are considered.
+# min_keep: minimum number of snapshots to retain per interval on the target.
+snapshot_filter:
+  - filter: hourly
+    min_keep: 3
+  - filter: daily
+    min_keep: 3
+  - filter: weekly
+    min_keep: 3
+  - filter: monthly
+    min_keep: 1
 
 # Optional checkzfs monitoring integration (for Checkmk).
 checkzfs:

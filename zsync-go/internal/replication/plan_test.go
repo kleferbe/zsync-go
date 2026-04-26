@@ -28,13 +28,18 @@ func snap(dataset, shortName, guid string, hoursAfterT0 int) zfs.Snapshot {
 }
 
 func defaultFilter() config.SnapshotFilter {
-	return config.SnapshotFilter{"hourly", "daily", "weekly", "monthly"}
+	return config.SnapshotFilter{
+		{Filter: "hourly", MinKeep: 3},
+		{Filter: "daily", MinKeep: 3},
+		{Filter: "weekly", MinKeep: 3},
+		{Filter: "monthly", MinKeep: 3},
+	}
 }
 
 func defaultCfg() *config.Config {
 	return &config.Config{
-		Target: config.TargetConfig{Dataset: "backup/replicas", MinKeep: 3},
-		Source: config.SourceConfig{SnapshotFilter: defaultFilter()},
+		Target:         config.TargetConfig{Dataset: "backup/replicas"},
+		SnapshotFilter: defaultFilter(),
 	}
 }
 
@@ -261,6 +266,11 @@ func TestBuildPlan_Cleanup(t *testing.T) {
 		},
 	}
 
+	// Source has d13-d16, target has d10-d15.
+	// Common snapshot = d15 (most recent on both sides).
+	// SendSnapshots = [d16] (1 incoming daily).
+	// After sync: target has 7 daily snapshots (d10..d16).
+	// minKeep = 3 → delete 4 oldest (d10, d11, d12, d13), keep 3 (d14, d15, d16).
 	plan := BuildPlan(srcState, tgtState, defaultCfg())
 	dp := plan.Datasets[0]
 
@@ -274,8 +284,8 @@ func TestBuildPlan_Cleanup(t *testing.T) {
 	if c.Interval != "daily" {
 		t.Errorf("interval = %q, want daily", c.Interval)
 	}
-	if len(c.Delete) != 3 {
-		t.Errorf("delete count = %d, want 3", len(c.Delete))
+	if len(c.Delete) != 4 {
+		t.Errorf("delete count = %d, want 4", len(c.Delete))
 	}
 	if c.Keep != 3 {
 		t.Errorf("keep = %d, want 3", c.Keep)
@@ -375,7 +385,11 @@ func TestFilterSnapshots(t *testing.T) {
 		snap("ds", "manual-backup", "c", 2),
 		snap("ds", "weekly-01", "d", 3),
 	}
-	filtered := FilterSnapshots(snaps, config.SnapshotFilter{"hourly", "daily", "weekly"})
+	filtered := FilterSnapshots(snaps, config.SnapshotFilter{
+		{Filter: "hourly", MinKeep: 3},
+		{Filter: "daily", MinKeep: 3},
+		{Filter: "weekly", MinKeep: 3},
+	})
 	if len(filtered) != 3 {
 		t.Errorf("filtered len = %d, want 3", len(filtered))
 	}
@@ -390,19 +404,5 @@ func TestFilterSnapshotsByInterval(t *testing.T) {
 	hourly := FilterSnapshotsByInterval(snaps, "hourly")
 	if len(hourly) != 2 {
 		t.Errorf("hourly len = %d, want 2", len(hourly))
-	}
-}
-
-func TestBuildGUIDIndex(t *testing.T) {
-	snaps := []zfs.Snapshot{
-		snap("ds", "a", "guid1", 0),
-		snap("ds", "b", "guid2", 1),
-	}
-	idx := BuildGUIDIndex(snaps)
-	if _, ok := idx["guid1"]; !ok {
-		t.Error("guid1 not found")
-	}
-	if _, ok := idx["guid2"]; !ok {
-		t.Error("guid2 not found")
 	}
 }

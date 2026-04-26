@@ -62,8 +62,8 @@ func FilterSnapshots(snaps []zfs.Snapshot, filter config.SnapshotFilter) []zfs.S
 		return snaps
 	}
 	return lo.Filter(snaps, func(s zfs.Snapshot, _ int) bool {
-		return lo.SomeBy(filter, func(f string) bool {
-			return strings.Contains(s.ShortName, f)
+		return lo.SomeBy(filter, func(e config.SnapshotFilterEntry) bool {
+			return strings.Contains(s.ShortName, e.Filter)
 		})
 	})
 }
@@ -73,13 +73,6 @@ func FilterSnapshots(snaps []zfs.Snapshot, filter config.SnapshotFilter) []zfs.S
 func FilterSnapshotsByInterval(snaps []zfs.Snapshot, interval string) []zfs.Snapshot {
 	return lo.Filter(snaps, func(s zfs.Snapshot, _ int) bool {
 		return strings.Contains(s.ShortName, interval)
-	})
-}
-
-// BuildGUIDIndex builds a map from GUID to snapshot for fast lookup.
-func BuildGUIDIndex(snaps []zfs.Snapshot) map[string]zfs.Snapshot {
-	return lo.KeyBy(snaps, func(s zfs.Snapshot) string {
-		return s.GUID
 	})
 }
 
