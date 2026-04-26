@@ -1,0 +1,37 @@
+# Local replication target.
+target:
+  # ZFS dataset path under which replicated datasets are created.
+  dataset: backup/replicas
+  # Minimum number of snapshots to keep per filter interval on the target.
+  min_keep: 3
+
+# Replication source settings.
+source:
+  # SSH connection to the source host.
+  # Leave host empty for local-only replication (no SSH).
+  ssh:
+    host: root@pve1
+    port: 22
+  # The source Datasets. Only these will be processed (when tagged subvols exist)
+  datasets: 
+    - tank
+  # ZFS user property on the source that marks datasets for replication.
+  # Possible values on source datasets: "all", "subvols", "exclude".
+  tag: bashclub:zsync
+  # Snapshot name patterns eligible for replication.
+  # Only snapshots whose name contains one of these strings are considered.
+  snapshot_filter:
+    - hourly
+    - daily
+    - weekly
+    - monthly
+
+# Optional checkzfs monitoring integration (for Checkmk).
+checkzfs:
+  enabled: true
+  local: false
+  prefix: zsync
+  max_age: "1500,6000"
+  max_snapshot_count: "150,165"
+  spool: local          # "local" or "source"
+  spool_max_age: 87000
