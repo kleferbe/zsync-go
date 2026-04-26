@@ -71,7 +71,7 @@ func Run(ctx context.Context, cfg *config.Config, localExec, sourceExec exec.Exe
 	}
 
 	// Move spool file to destination.
-	if czCfg.Spool == spoolSource && !czCfg.Local && !cfg.Source.SSH.IsLocal() {
+	if czCfg.Spool == spoolSource && !cfg.Source.SSH.IsLocal() {
 		return spoolToSource(ctx, cfg, sourceExec, tmpFile, spoolFileName)
 	}
 	return spoolLocally(ctx, localExec, tmpFile, spoolFileName)
@@ -84,7 +84,7 @@ func buildArgs(cfg *config.Config) []string {
 	var args []string
 
 	// --source host:port (only when not local mode)
-	if !czCfg.Local && !cfg.Source.SSH.IsLocal() {
+	if !cfg.Source.SSH.IsLocal() {
 		args = append(args, "--source", fmt.Sprintf("%s:%d", cfg.Source.SSH.Host, cfg.Source.SSH.Port))
 	}
 

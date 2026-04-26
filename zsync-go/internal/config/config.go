@@ -59,8 +59,6 @@ type CheckZFSConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Path is the path to the checkzfs binary. Defaults to "checkzfs" (looked up in PATH).
 	Path string `yaml:"path"`
-	// Local runs checkzfs without the --source parameter.
-	Local bool `yaml:"local"`
 	// Prefix is the checkzfs output prefix.
 	Prefix string `yaml:"prefix"`
 	// MaxAge is the maximum age of the last snapshot in minutes (warn,crit).
