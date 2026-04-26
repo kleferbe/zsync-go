@@ -57,6 +57,8 @@ func (s SSHConfig) IsLocal() bool {
 type CheckZFSConfig struct {
 	// Enabled enables checkzfs monitoring.
 	Enabled bool `yaml:"enabled"`
+	// Path is the path to the checkzfs binary. Defaults to "checkzfs" (looked up in PATH).
+	Path string `yaml:"path"`
 	// Local runs checkzfs without the --source parameter.
 	Local bool `yaml:"local"`
 	// Prefix is the checkzfs output prefix.

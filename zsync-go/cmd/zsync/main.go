@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/kleferbe/zsync/internal/checkzfs"
 	"github.com/kleferbe/zsync/internal/config"
 	"github.com/kleferbe/zsync/internal/exec"
 	"github.com/kleferbe/zsync/internal/replication"
@@ -115,7 +116,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO: Phase 5 – checkzfs monitoring
+	// Phase 5: checkzfs monitoring.
+	if cfg.CheckZFS.Enabled {
+		slog.Info("running checkzfs monitoring")
+		if err := checkzfs.Run(ctx, cfg, localExec, sourceExec); err != nil {
+			slog.Error("checkzfs failed", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	slog.Info("zsync completed successfully")
 }

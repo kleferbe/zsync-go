@@ -33,6 +33,7 @@ snapshot_filter:
 # Optional checkzfs monitoring integration (for Checkmk).
 checkzfs:
   enabled: true
+  # path: /usr/local/bin/checkzfs  # optional, defaults to "checkzfs" in PATH
   local: false
   prefix: zsync
   max_age: "1500,6000"
