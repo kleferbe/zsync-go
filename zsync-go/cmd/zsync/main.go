@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 
 	"github.com/kleferbe/zsync/internal/config"
+	"github.com/kleferbe/zsync/internal/exec"
+	"github.com/kleferbe/zsync/internal/replication"
+	"github.com/kleferbe/zsync/internal/zfs"
 )
 
 var version = "dev"
@@ -48,18 +52,54 @@ func main() {
 		"local_mode", cfg.Source.SSH.IsLocal(),
 	)
 
+	ctx := context.Background()
+
+	// Build executors.
+	localExec := exec.NewLocal()
+	var sourceExec exec.Executor
+	if cfg.Source.SSH.IsLocal() {
+		sourceExec = localExec
+	} else {
+		sourceExec = exec.NewSSH(cfg.Source.SSH.Host, cfg.Source.SSH.Port)
+	}
+
+	sourceClient := zfs.NewClient(sourceExec)
+	targetClient := zfs.NewClient(localExec)
+
+	// Phase 1: Discover source datasets.
+	slog.Info("discovering source datasets")
+	srcState, err := replication.DiscoverSource(ctx, cfg, sourceClient)
+	if err != nil {
+		slog.Error("source discovery failed", "error", err)
+		os.Exit(1)
+	}
+
+	// Phase 2: Discover target datasets.
+	slog.Info("discovering target datasets")
+	tgtState, err := replication.DiscoverTarget(ctx, cfg, targetClient)
+	if err != nil {
+		slog.Error("target discovery failed", "error", err)
+		os.Exit(1)
+	}
+
+	// Phase 3: Build replication plan.
+	pb := &replication.PlanBuilder{
+		Source: srcState,
+		Target: tgtState,
+		Config: cfg,
+	}
+	plan := pb.Build()
+
+	// Display plan.
+	replication.WritePlanText(os.Stdout, plan)
+
 	if *dryRun {
-		slog.Info("dry-run mode: plan would be displayed here")
 		os.Exit(0)
 	}
 
-	// TODO: phases will be added in subsequent steps:
-	// 1. Discover datasets on source (zfs get $tag)
-	// 2. Collect snapshot state on source and target
-	// 3. Build replication plan
-	// 4. Execute plan (or print in dry-run mode)
-	// 5. Cleanup old snapshots
-	// 6. Run checkzfs monitoring
+	// TODO: Phase 4 – Execute plan (zfs send/receive, rename, create)
+	// TODO: Phase 5 – Cleanup (only after successful sync)
+	// TODO: Phase 6 – checkzfs monitoring
 
 	slog.Info("zsync completed successfully")
 }
