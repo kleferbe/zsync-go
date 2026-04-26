@@ -97,9 +97,25 @@ func main() {
 		os.Exit(0)
 	}
 
-	// TODO: Phase 4 – Execute plan (zfs send/receive, rename, create)
-	// TODO: Phase 5 – Cleanup (only after successful sync)
-	// TODO: Phase 6 – checkzfs monitoring
+	// Phase 4: Execute plan.
+	slog.Info("executing replication plan")
+	result, err := replication.Execute(ctx, plan, sourceClient, targetClient)
+	if err != nil {
+		slog.Error("execution failed", "error", err)
+		os.Exit(1)
+	}
+
+	if result.HasErrors() {
+		for ds, e := range result.SyncErrors {
+			slog.Error("sync error", "dataset", ds, "error", e)
+		}
+		for ds, e := range result.CleanupErrors {
+			slog.Error("cleanup error", "dataset", ds, "error", e)
+		}
+		os.Exit(1)
+	}
+
+	// TODO: Phase 5 – checkzfs monitoring
 
 	slog.Info("zsync completed successfully")
 }

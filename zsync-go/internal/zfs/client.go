@@ -151,6 +151,15 @@ func (c *Client) DestroySnapshot(ctx context.Context, snapshot string) error {
 	return err
 }
 
+// RenameDataset renames a dataset (filesystem or volume).
+//
+//	zfs rename <oldname> <newname>
+func (c *Client) RenameDataset(ctx context.Context, oldName, newName string) error {
+	slog.Info("renaming dataset", "from", oldName, "to", newName, "executor", c.exec.String())
+	_, err := c.exec.Run(ctx, "zfs", "rename", oldName, newName)
+	return err
+}
+
 // ---------------------------------------------------------------------------
 // Send / Receive (pipeline)
 // ---------------------------------------------------------------------------
