@@ -546,3 +546,63 @@ func TestFilterSnapshotsByInterval(t *testing.T) {
 		t.Errorf("hourly len = %d, want 2", len(hourly))
 	}
 }
+
+// TestBuildPlan_CommonSnapshotOutsideFilter verifies that the common snapshot
+// does not need to match the snapshot filter. This allows changing the filter
+// (e.g. from daily to hourly) without forcing a reinitialize.
+func TestBuildPlan_CommonSnapshotOutsideFilter(t *testing.T) {
+	// Source has daily snapshots (old) and hourly snapshots (new).
+	// The common snapshot is a daily, but the filter only includes hourly.
+	srcState := &SourceState{
+		Datasets: []SourceDatasetInfo{{
+			Name: "tank/data", Type: zfs.Filesystem,
+			Snapshots: []zfs.Snapshot{
+				snap("tank/data", "daily-2025-01-10", "aaa", 0),
+				snap("tank/data", "daily-2025-01-11", "bbb", 24),
+				snap("tank/data", "hourly-2025-01-12-00", "ccc", 48),
+				snap("tank/data", "hourly-2025-01-12-01", "ddd", 49),
+			},
+		}},
+	}
+	tgtState := &TargetState{
+		RootDataset: "backup/replicas",
+		RootExists:  true,
+		Datasets: map[string]TargetDatasetInfo{
+			"backup/replicas/tank/data": {
+				Name: "backup/replicas/tank/data", Exists: true,
+				Snapshots: []zfs.Snapshot{
+					snap("backup/replicas/tank/data", "daily-2025-01-10", "aaa", 0),
+					snap("backup/replicas/tank/data", "daily-2025-01-11", "bbb", 24),
+				},
+			},
+		},
+	}
+
+	// Filter only for hourly — daily snapshots are NOT in the filter.
+	cfg := &config.Config{
+		Target: config.TargetConfig{Dataset: "backup/replicas"},
+		SnapshotFilter: config.SnapshotFilter{
+			{Filter: "hourly", MinKeep: 3},
+		},
+	}
+
+	plan := BuildPlan(srcState, tgtState, cfg)
+	dp := plan.Datasets[0]
+
+	// Should find bbb (daily) as common snapshot even though it's not in the filter.
+	if dp.Action != ActionIncremental {
+		t.Fatalf("action = %v, want incremental", dp.Action)
+	}
+	if dp.CommonSnapshot == nil || dp.CommonSnapshot.GUID != "bbb" {
+		t.Errorf("common snapshot should be bbb, got %+v", dp.CommonSnapshot)
+	}
+	if len(dp.SendSnapshots) != 2 {
+		t.Fatalf("send snapshots len = %d, want 2", len(dp.SendSnapshots))
+	}
+	if dp.SendSnapshots[0].GUID != "ccc" {
+		t.Errorf("first send snapshot should be ccc, got %s", dp.SendSnapshots[0].GUID)
+	}
+	if dp.SendSnapshots[1].GUID != "ddd" {
+		t.Errorf("second send snapshot should be ddd, got %s", dp.SendSnapshots[1].GUID)
+	}
+}

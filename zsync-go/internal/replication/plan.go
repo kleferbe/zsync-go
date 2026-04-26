@@ -169,13 +169,16 @@ func (pb *PlanBuilder) buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDat
 	}
 
 	// Target exists → find most recent common snapshot via GUID.
+	// The common snapshot does not need to match the snapshot filter — it is
+	// not transferred but serves as the incremental base. This allows changing
+	// the filter (e.g. from daily to hourly) without forcing a reinitialize.
 	tgtGUIDs := lo.SliceToMap(tgtDS.Snapshots, func(s zfs.Snapshot) (string, struct{}) {
 		return s.GUID, struct{}{}
 	})
 
-	// Walk source snapshots from newest to oldest to find the most recent
-	// common snapshot.
-	_, commonIdx, found := lo.FindLastIndexOf(srcFiltered, func(s zfs.Snapshot) bool {
+	// Walk ALL source snapshots (not just filtered) from newest to oldest
+	// to find the most recent common snapshot.
+	_, commonIdx, found := lo.FindLastIndexOf(srcDS.Snapshots, func(s zfs.Snapshot) bool {
 		return lo.HasKey(tgtGUIDs, s.GUID)
 	})
 
@@ -188,11 +191,11 @@ func (pb *PlanBuilder) buildDatasetPlan(srcDS SourceDatasetInfo, tgtDS TargetDat
 		return dp
 	}
 
-	common := srcFiltered[commonIdx]
+	common := srcDS.Snapshots[commonIdx]
 	dp.CommonSnapshot = &common
 
-	// Everything after commonIdx needs to be sent.
-	pending := srcFiltered[commonIdx+1:]
+	// Only filtered snapshots after the common snapshot need to be sent.
+	pending := FilterSnapshots(srcDS.Snapshots[commonIdx+1:], filter)
 
 	if len(pending) == 0 {
 		dp.Action = ActionSkip
