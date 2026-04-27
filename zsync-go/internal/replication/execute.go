@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/kleferbe/zsync/internal/config"
 	"github.com/kleferbe/zsync/internal/zfs"
 )
 
@@ -28,7 +29,7 @@ func (r *ExecuteResult) HasErrors() bool {
 //
 // The target root is created first if needed. Execute never stops on the first
 // error — it processes all datasets and collects errors.
-func Execute(ctx context.Context, plan *Plan, source, target *zfs.Client) (*ExecuteResult, error) {
+func Execute(ctx context.Context, plan *Plan, cfg *config.Config, source, target *zfs.Client) (*ExecuteResult, error) {
 	result := &ExecuteResult{
 		SyncErrors:    make(map[string]error),
 		CleanupErrors: make(map[string]error),
@@ -49,11 +50,11 @@ func Execute(ctx context.Context, plan *Plan, source, target *zfs.Client) (*Exec
 		case ActionSkip, ActionError:
 			continue
 		case ActionInitial:
-			syncErr = executeInitial(ctx, &dp, source, target)
+			syncErr = executeInitial(ctx, &dp, cfg, source, target)
 		case ActionReinitialize:
-			syncErr = executeReinitialize(ctx, &dp, source, target)
+			syncErr = executeReinitialize(ctx, &dp, cfg, source, target)
 		case ActionIncremental:
-			syncErr = executeIncremental(ctx, &dp, source, target)
+			syncErr = executeIncremental(ctx, &dp, cfg, source, target)
 		}
 
 		if syncErr != nil {
@@ -74,21 +75,29 @@ func Execute(ctx context.Context, plan *Plan, source, target *zfs.Client) (*Exec
 	return result, nil
 }
 
+// buildRecvOpts creates ReceiveOptions appropriate for the dataset type.
+// Filesystems get -o canmount=noauto and -x mountpoint; volumes do not.
+// The replication tag property is always excluded.
+func buildRecvOpts(dsType zfs.DatasetType, tag string, force bool) zfs.ReceiveOptions {
+	opts := zfs.ReceiveOptions{
+		Force:             force,
+		ExcludeProperties: []string{tag},
+	}
+	if dsType == zfs.Filesystem {
+		opts.SetProperties = map[string]string{"canmount": "noauto"}
+		opts.ExcludeProperties = append(opts.ExcludeProperties, "mountpoint")
+	}
+	return opts
+}
+
 // executeInitial sends all snapshots for a new dataset.
 // The first snapshot is a full send, subsequent ones are incremental.
-//
-// ZFS commands:
-//
-//	zfs send -w -p <snapshot>            | zfs receive -o canmount=noauto <target>
-//	zfs send -w -i <prev> <snapshot>     | zfs receive -F -o canmount=noauto <target>
-func executeInitial(ctx context.Context, dp *DatasetPlan, source, target *zfs.Client) error {
+func executeInitial(ctx context.Context, dp *DatasetPlan, cfg *config.Config, source, target *zfs.Client) error {
 	slog.Info("starting initial replication", "source", dp.SourceDataset, "target", dp.TargetDataset, "snapshots", len(dp.SendSnapshots))
 
 	for i, snap := range dp.SendSnapshots {
 		sendOpts := zfs.SendOptions{Raw: true}
-		recvOpts := zfs.ReceiveOptions{
-			SetProperties: map[string]string{"canmount": "noauto"},
-		}
+		recvOpts := buildRecvOpts(dp.DatasetType, cfg.Source.Tag, i > 0)
 
 		if i == 0 {
 			// First snapshot: full send with properties.
@@ -96,7 +105,6 @@ func executeInitial(ctx context.Context, dp *DatasetPlan, source, target *zfs.Cl
 		} else {
 			// Subsequent snapshots: incremental from previous.
 			sendOpts.IncrementalBase = dp.SendSnapshots[i-1].Name
-			recvOpts.Force = true
 		}
 
 		slog.Info("sending snapshot", "snapshot", snap.Name, "full", i == 0)
@@ -114,7 +122,7 @@ func executeInitial(ctx context.Context, dp *DatasetPlan, source, target *zfs.Cl
 //
 //	zfs rename <target> <target-old>
 //	(then same as executeInitial)
-func executeReinitialize(ctx context.Context, dp *DatasetPlan, source, target *zfs.Client) error {
+func executeReinitialize(ctx context.Context, dp *DatasetPlan, cfg *config.Config, source, target *zfs.Client) error {
 	slog.Info("reinitializing dataset",
 		"target", dp.TargetDataset,
 		"rename_to", dp.RenameExistingTarget,
@@ -124,16 +132,11 @@ func executeReinitialize(ctx context.Context, dp *DatasetPlan, source, target *z
 		return fmt.Errorf("renaming %s to %s: %w", dp.TargetDataset, dp.RenameExistingTarget, err)
 	}
 
-	return executeInitial(ctx, dp, source, target)
+	return executeInitial(ctx, dp, cfg, source, target)
 }
 
 // executeIncremental sends pending snapshots incrementally from the common snapshot.
-//
-// ZFS commands:
-//
-//	zfs send -w -i <common> <snap1>  | zfs receive -F -o canmount=noauto <target>
-//	zfs send -w -i <snap1> <snap2>   | zfs receive -F -o canmount=noauto <target>
-func executeIncremental(ctx context.Context, dp *DatasetPlan, source, target *zfs.Client) error {
+func executeIncremental(ctx context.Context, dp *DatasetPlan, cfg *config.Config, source, target *zfs.Client) error {
 	slog.Info("starting incremental replication",
 		"source", dp.SourceDataset,
 		"target", dp.TargetDataset,
@@ -147,10 +150,7 @@ func executeIncremental(ctx context.Context, dp *DatasetPlan, source, target *zf
 			Raw:             true,
 			IncrementalBase: base,
 		}
-		recvOpts := zfs.ReceiveOptions{
-			Force:         true,
-			SetProperties: map[string]string{"canmount": "noauto"},
-		}
+		recvOpts := buildRecvOpts(dp.DatasetType, cfg.Source.Tag, true)
 
 		slog.Info("sending snapshot", "snapshot", snap.Name, "base", base)
 		if err := zfs.SendReceive(ctx, source, target, snap.Name, dp.TargetDataset, sendOpts, recvOpts); err != nil {

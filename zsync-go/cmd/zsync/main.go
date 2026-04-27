@@ -68,7 +68,13 @@ func main() {
 	if cfg.Source.SSH.IsLocal() {
 		sourceExec = localExec
 	} else {
-		sourceExec = exec.NewSSH(cfg.Source.SSH.Host, cfg.Source.SSH.Port)
+		sshExec := exec.NewSSH(cfg.Source.SSH.Host, cfg.Source.SSH.Port)
+
+		// Negotiate optimal SSH cipher based on AES-NI hardware support.
+		cipher := exec.NegotiateCipher(ctx, localExec, sshExec)
+		sshExec.SetCipher(cipher)
+
+		sourceExec = sshExec
 	}
 
 	sourceClient := zfs.NewClient(sourceExec)
@@ -107,7 +113,7 @@ func main() {
 
 	// Phase 4: Execute plan.
 	slog.Info("executing replication plan")
-	result, err := replication.Execute(ctx, plan, sourceClient, targetClient)
+	result, err := replication.Execute(ctx, plan, cfg, sourceClient, targetClient)
 	if err != nil {
 		slog.Error("execution failed", "error", err)
 		os.Exit(1)

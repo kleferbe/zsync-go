@@ -80,6 +80,7 @@ type SSHExecutor struct {
 	host        string // user@host
 	port        int
 	controlPath string
+	cipher      string // SSH cipher to use (e.g. "aes256-gcm@openssh.com")
 }
 
 // NewSSH returns an executor that runs commands on a remote host.
@@ -98,16 +99,24 @@ func NewSSH(host string, port int) *SSHExecutor {
 	}
 }
 
+// SetCipher configures the SSH cipher to use for all subsequent commands.
+func (s *SSHExecutor) SetCipher(cipher string) {
+	s.cipher = cipher
+}
+
 // sshArgs returns the base SSH arguments including ControlMaster options.
 func (s *SSHExecutor) sshArgs() []string {
-	return []string{
+	args := []string{
 		"-oControlMaster=auto",
 		"-oControlPath=" + s.controlPath,
 		"-oControlPersist=60",
 		"-oBatchMode=yes",
-		fmt.Sprintf("-p%d", s.port),
-		s.host,
 	}
+	if s.cipher != "" {
+		args = append(args, "-c"+s.cipher)
+	}
+	args = append(args, fmt.Sprintf("-p%d", s.port), s.host)
+	return args
 }
 
 func (s *SSHExecutor) Run(ctx context.Context, name string, args ...string) (string, error) {
