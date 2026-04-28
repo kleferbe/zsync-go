@@ -500,7 +500,7 @@ func TestWritePlanText(t *testing.T) {
 	plan := BuildPlan(srcState, tgtState, defaultCfg())
 
 	var buf bytes.Buffer
-	WritePlanText(&buf, plan)
+	WritePlanText(&buf, plan, true)
 	out := buf.String()
 
 	if !strings.Contains(out, "will be created") {
