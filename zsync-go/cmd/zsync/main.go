@@ -120,7 +120,7 @@ func main() {
 	plan := pb.Build()
 
 	// Display plan.
-	replication.WritePlanText(os.Stdout, plan)
+	replication.WritePlanText(os.Stdout, plan, *dryRun)
 
 	if *dryRun {
 		os.Exit(0)

@@ -13,7 +13,7 @@ import (
 // WritePlanText writes a human-readable representation of the plan to w.
 // This is separated from the plan structure so the display format does not
 // influence the plan's data model.
-func WritePlanText(w io.Writer, plan *Plan) {
+func WritePlanText(w io.Writer, plan *Plan, details bool) {
 	if plan.NeedTargetRoot {
 		fmt.Fprintf(w, "Target root %q does not exist and will be created.\n\n", plan.TargetRootDataset)
 	}
@@ -32,6 +32,9 @@ func WritePlanText(w io.Writer, plan *Plan) {
 			dp.Action, dp.SourceDataset, dp.TargetDataset, len(dp.SendSnapshots), dp.Reason)
 	}
 	tw.Flush()
+	if !details {
+		return
+	}
 
 	// Details per dataset
 	for _, dp := range plan.Datasets {
