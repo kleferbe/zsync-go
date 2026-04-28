@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/kleferbe/zsync/internal/config"
 	"github.com/kleferbe/zsync/internal/zfs"
@@ -108,7 +109,7 @@ func executeInitial(ctx context.Context, dp *DatasetPlan, cfg *config.Config, so
 		}
 
 		slog.Info("sending snapshot", "snapshot", snap.Name, "full", i == 0)
-		if err := zfs.SendReceive(ctx, source, target, snap.Name, dp.TargetDataset, sendOpts, recvOpts); err != nil {
+		if err := zfs.SendReceive(ctx, source, target, snap.Name, dp.TargetDataset, sendOpts, recvOpts, cfg.Retry.MaxRetries, time.Duration(cfg.Retry.DelaySeconds)*time.Second); err != nil {
 			return fmt.Errorf("sending %s: %w", snap.Name, err)
 		}
 	}
@@ -153,7 +154,7 @@ func executeIncremental(ctx context.Context, dp *DatasetPlan, cfg *config.Config
 		recvOpts := buildRecvOpts(dp.DatasetType, cfg.Source.Tag, true)
 
 		slog.Info("sending snapshot", "snapshot", snap.Name, "base", base)
-		if err := zfs.SendReceive(ctx, source, target, snap.Name, dp.TargetDataset, sendOpts, recvOpts); err != nil {
+		if err := zfs.SendReceive(ctx, source, target, snap.Name, dp.TargetDataset, sendOpts, recvOpts, cfg.Retry.MaxRetries, time.Duration(cfg.Retry.DelaySeconds)*time.Second); err != nil {
 			return fmt.Errorf("sending %s (base %s): %w", snap.Name, base, err)
 		}
 

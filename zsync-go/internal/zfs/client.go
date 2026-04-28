@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/kleferbe/zsync/internal/exec"
 	"github.com/samber/lo"
@@ -187,7 +188,8 @@ type ReceiveOptions struct {
 }
 
 // SendReceive pipes zfs send on the source to zfs receive on the target.
-func SendReceive(ctx context.Context, source *Client, target *Client, snapshot string, targetDataset string, sendOpts SendOptions, recvOpts ReceiveOptions) error {
+// If maxRetries > 0, failed attempts are retried with retryDelay between attempts.
+func SendReceive(ctx context.Context, source *Client, target *Client, snapshot string, targetDataset string, sendOpts SendOptions, recvOpts ReceiveOptions, maxRetries int, retryDelay time.Duration) error {
 	sendArgs := buildSendArgs(snapshot, sendOpts)
 	recvArgs := buildReceiveArgs(targetDataset, recvOpts)
 
@@ -198,7 +200,42 @@ func SendReceive(ctx context.Context, source *Client, target *Client, snapshot s
 		"receiver", target.exec.String(),
 	)
 
-	return source.exec.RunPipe(ctx, target.exec, "zfs", sendArgs, "zfs", recvArgs)
+	attempts := 1 + maxRetries
+	var lastErr error
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if attempt > 1 {
+			slog.Warn("retrying send/receive",
+				"attempt", attempt,
+				"of", attempts,
+				"snapshot", snapshot,
+				"delay", retryDelay,
+			)
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryDelay):
+			}
+		}
+
+		lastErr = source.exec.RunPipe(ctx, target.exec, "zfs", sendArgs, "zfs", recvArgs)
+		if lastErr == nil {
+			if attempt > 1 {
+				slog.Info("send/receive succeeded after retry", "attempt", attempt, "snapshot", snapshot)
+			}
+			return nil
+		}
+
+		slog.Warn("send/receive failed",
+			"error", lastErr,
+			"attempt", attempt,
+			"of", attempts,
+			"snapshot", snapshot,
+		)
+	}
+
+	return lastErr
 }
 
 func buildSendArgs(snapshot string, opts SendOptions) []string {

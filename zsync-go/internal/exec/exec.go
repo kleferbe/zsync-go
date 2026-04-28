@@ -156,6 +156,8 @@ func (s *SSHExecutor) String() string {
 // ---------------------------------------------------------------------------
 
 // runPipe connects stdout of the sender to stdin of the receiver.
+// Both sides are waited on concurrently so that a failure on either
+// side is detected immediately and the other side is unblocked.
 func runPipe(ctx context.Context, sendExec, recvExec Executor, sendName string, sendArgs []string, recvName string, recvArgs []string) error {
 	sendCmd := sendExec.Command(ctx, sendName, sendArgs...)
 	recvCmd := recvExec.Command(ctx, recvName, recvArgs...)
@@ -178,11 +180,47 @@ func runPipe(ctx context.Context, sendExec, recvExec Executor, sendName string, 
 		return fmt.Errorf("starting sender %q: %w", sendCmd.String(), err)
 	}
 
-	// Wait for sender to finish, then close the pipe writer so
-	// the receiver sees EOF.
-	sendErr := sendCmd.Wait()
-	pw.Close()
-	recvErr := recvCmd.Wait()
+	// Wait for both sides concurrently. If either side exits (especially
+	// on failure), we close the pipe and kill the other side to avoid
+	// blocking indefinitely on a stalled pipe.
+	sendDone := make(chan error, 1)
+	recvDone := make(chan error, 1)
+
+	go func() { sendDone <- sendCmd.Wait() }()
+	go func() { recvDone <- recvCmd.Wait() }()
+
+	var sendErr, recvErr error
+
+	select {
+	case sendErr = <-sendDone:
+		// Sender exited first (normal path). Close the pipe writer so
+		// the receiver sees EOF and can finish.
+		pw.Close()
+		recvErr = <-recvDone
+
+	case recvErr = <-recvDone:
+		// Receiver exited first. This typically indicates a failure
+		// (e.g. connection lost, zfs receive error, defunct process).
+		// Close the pipe reader to unblock pending writes in the
+		// io.Copy goroutine, then kill the sender process so it exits.
+		pr.Close()
+		_ = sendCmd.Process.Kill()
+		sendErr = <-sendDone
+		pw.Close()
+
+		slog.Debug("pipe: receiver exited before sender",
+			"recvErr", recvErr,
+			"sendErr", sendErr,
+			"recvStderr", recvStderr.String(),
+		)
+
+		// The receiver error is the root cause; the sender error is
+		// a side-effect of being killed.
+		if recvErr != nil {
+			return fmt.Errorf("receiver %q failed: %w\nstderr: %s", recvCmd.String(), recvErr, recvStderr.String())
+		}
+		return nil
+	}
 
 	if sendErr != nil {
 		return fmt.Errorf("sender %q failed: %w\nstderr: %s", sendCmd.String(), sendErr, sendStderr.String())

@@ -71,6 +71,16 @@ type CheckZFSConfig struct {
 	SpoolMaxAge int `yaml:"spool_max_age"`
 }
 
+// RetryConfig controls retry behaviour for failed send/receive operations.
+type RetryConfig struct {
+	// MaxRetries is the number of additional attempts after the first failure.
+	// 0 means no retries (default behaviour). Defaults to 3.
+	MaxRetries int `yaml:"max_retries"`
+	// DelaySeconds is the number of seconds to wait between retry attempts.
+	// Defaults to 30.
+	DelaySeconds int `yaml:"delay_seconds"`
+}
+
 // TargetConfig groups settings for the local replication target.
 type TargetConfig struct {
 	// Dataset is the ZFS dataset path on the local (backup) host under which
@@ -102,6 +112,8 @@ type Config struct {
 	SnapshotFilter SnapshotFilter `yaml:"snapshot_filter"`
 	// CheckZFS configures the optional monitoring integration.
 	CheckZFS CheckZFSConfig `yaml:"checkzfs"`
+	// Retry controls retry behaviour for failed send/receive operations.
+	Retry RetryConfig `yaml:"retry"`
 }
 
 // defaults fills in zero-value fields with sensible defaults.
@@ -124,6 +136,12 @@ func (c *Config) defaults() {
 	}
 	if c.Source.SSH.Port == 0 {
 		c.Source.SSH.Port = 22
+	}
+	if c.Retry.MaxRetries == 0 {
+		c.Retry.MaxRetries = 3
+	}
+	if c.Retry.DelaySeconds == 0 {
+		c.Retry.DelaySeconds = 30
 	}
 	if c.CheckZFS.Prefix == "" {
 		c.CheckZFS.Prefix = "zsync"

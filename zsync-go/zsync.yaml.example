@@ -30,6 +30,14 @@ snapshot_filter:
   - filter: monthly
     min_keep: 1
 
+# Retry behaviour for failed send/receive operations.
+# Useful for large initial syncs over unreliable connections.
+retry:
+  # Number of additional attempts after the first failure. 0 = no retries.
+  max_retries: 3
+  # Seconds to wait between retry attempts.
+  delay_seconds: 30
+
 # Optional checkzfs monitoring integration (for Checkmk).
 checkzfs:
   enabled: true
