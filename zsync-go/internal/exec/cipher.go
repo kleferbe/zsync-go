@@ -41,7 +41,7 @@ func DetectAESNI(ctx context.Context, exec Executor) bool {
 		return false
 	}
 
-	result := strings.TrimSpace(strings.ToLower(out)) == "aes"
+	result := len(out) > 0
 	slog.Debug("AES-NI detection result", "executor", exec.String(), "aes", result)
 	return result
 }
