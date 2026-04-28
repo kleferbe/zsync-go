@@ -37,6 +37,10 @@ retry:
   max_retries: 3
   # Seconds to wait between retry attempts.
   delay_seconds: 30
+  # Use zfs receive -s to save partial state and resume via
+  # receive_resume_token on retry. Requires the extensible_dataset
+  # pool feature. Defaults to true.
+  resumable: true
 
 # Optional checkzfs monitoring integration (for Checkmk).
 checkzfs:

@@ -179,6 +179,9 @@ type SendOptions struct {
 type ReceiveOptions struct {
 	// Force enables forced receive with rollback (-F).
 	Force bool
+	// Resumable enables saving partial receive state on interruption (-s).
+	// This allows resuming via receive_resume_token.
+	Resumable bool
 	// DiscardFirstName replaces the first element of the received dataset path (-d).
 	DiscardFirstName bool
 	// ExcludeProperties lists properties to exclude from receive (-x prop).
@@ -188,7 +191,9 @@ type ReceiveOptions struct {
 }
 
 // SendReceive pipes zfs send on the source to zfs receive on the target.
-// If maxRetries > 0, failed attempts are retried with retryDelay between attempts.
+// If maxRetries > 0, failed attempts are retried with retryDelay between
+// attempts. When recvOpts.Resumable is true, the receive uses -s and retries
+// attempt to resume via receive_resume_token before falling back to a fresh send.
 func SendReceive(ctx context.Context, source *Client, target *Client, snapshot string, targetDataset string, sendOpts SendOptions, recvOpts ReceiveOptions, maxRetries int, retryDelay time.Duration) error {
 	sendArgs := buildSendArgs(snapshot, sendOpts)
 	recvArgs := buildReceiveArgs(targetDataset, recvOpts)
@@ -219,7 +224,21 @@ func SendReceive(ctx context.Context, source *Client, target *Client, snapshot s
 			}
 		}
 
-		lastErr = source.exec.RunPipe(ctx, target.exec, "zfs", sendArgs, "zfs", recvArgs)
+		// On retry, check for a resume token on the target dataset.
+		// If found, use "zfs send -t <token>" to continue from where
+		// the previous transfer was interrupted.
+		currentSendArgs := sendArgs
+		if attempt > 1 && recvOpts.Resumable {
+			if token, err := getResumeToken(ctx, target, targetDataset); err == nil && token != "" {
+				slog.Info("resuming interrupted transfer",
+					"attempt", attempt,
+					"dataset", targetDataset,
+				)
+				currentSendArgs = []string{"send", "-t", token}
+			}
+		}
+
+		lastErr = source.exec.RunPipe(ctx, target.exec, "zfs", currentSendArgs, "zfs", recvArgs)
 		if lastErr == nil {
 			if attempt > 1 {
 				slog.Info("send/receive succeeded after retry", "attempt", attempt, "snapshot", snapshot)
@@ -236,6 +255,19 @@ func SendReceive(ctx context.Context, source *Client, target *Client, snapshot s
 	}
 
 	return lastErr
+}
+
+// getResumeToken reads the receive_resume_token property from a dataset.
+// Returns an empty string if no token is set (value is "-" or property unreadable).
+func getResumeToken(ctx context.Context, client *Client, dataset string) (string, error) {
+	token, err := client.GetProperty(ctx, dataset, "receive_resume_token")
+	if err != nil {
+		return "", err
+	}
+	if token == "-" || token == "" {
+		return "", nil
+	}
+	return token, nil
 }
 
 func buildSendArgs(snapshot string, opts SendOptions) []string {
@@ -257,6 +289,9 @@ func buildReceiveArgs(target string, opts ReceiveOptions) []string {
 	args := []string{"receive"}
 	if opts.Force {
 		args = append(args, "-F")
+	}
+	if opts.Resumable {
+		args = append(args, "-s")
 	}
 	for _, p := range opts.ExcludeProperties {
 		args = append(args, "-x", p)

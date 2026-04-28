@@ -79,6 +79,15 @@ type RetryConfig struct {
 	// DelaySeconds is the number of seconds to wait between retry attempts.
 	// Defaults to 30.
 	DelaySeconds int `yaml:"delay_seconds"`
+	// Resumable enables zfs receive -s so that interrupted transfers can be
+	// resumed via receive_resume_token instead of restarting from scratch.
+	// Requires the extensible_dataset pool feature. Defaults to true.
+	Resumable *bool `yaml:"resumable"`
+}
+
+// IsResumable returns whether resumable receive is enabled.
+func (r RetryConfig) IsResumable() bool {
+	return r.Resumable == nil || *r.Resumable
 }
 
 // TargetConfig groups settings for the local replication target.
@@ -142,6 +151,10 @@ func (c *Config) defaults() {
 	}
 	if c.Retry.DelaySeconds == 0 {
 		c.Retry.DelaySeconds = 30
+	}
+	if c.Retry.Resumable == nil {
+		t := true
+		c.Retry.Resumable = &t
 	}
 	if c.CheckZFS.Prefix == "" {
 		c.CheckZFS.Prefix = "zsync"

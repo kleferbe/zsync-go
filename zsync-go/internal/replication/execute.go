@@ -79,9 +79,10 @@ func Execute(ctx context.Context, plan *Plan, cfg *config.Config, source, target
 // buildRecvOpts creates ReceiveOptions appropriate for the dataset type.
 // Filesystems get -o canmount=noauto and -x mountpoint; volumes do not.
 // The replication tag property is always excluded.
-func buildRecvOpts(dsType zfs.DatasetType, tag string, force bool) zfs.ReceiveOptions {
+func buildRecvOpts(dsType zfs.DatasetType, tag string, force bool, resumable bool) zfs.ReceiveOptions {
 	opts := zfs.ReceiveOptions{
 		Force:             force,
+		Resumable:         resumable,
 		ExcludeProperties: []string{tag},
 	}
 	if dsType == zfs.Filesystem {
@@ -98,7 +99,7 @@ func executeInitial(ctx context.Context, dp *DatasetPlan, cfg *config.Config, so
 
 	for i, snap := range dp.SendSnapshots {
 		sendOpts := zfs.SendOptions{Raw: true}
-		recvOpts := buildRecvOpts(dp.DatasetType, cfg.Source.Tag, i > 0)
+		recvOpts := buildRecvOpts(dp.DatasetType, cfg.Source.Tag, i > 0, cfg.Retry.IsResumable())
 
 		if i == 0 {
 			// First snapshot: full send with properties.
@@ -151,7 +152,7 @@ func executeIncremental(ctx context.Context, dp *DatasetPlan, cfg *config.Config
 			Raw:             true,
 			IncrementalBase: base,
 		}
-		recvOpts := buildRecvOpts(dp.DatasetType, cfg.Source.Tag, true)
+		recvOpts := buildRecvOpts(dp.DatasetType, cfg.Source.Tag, true, cfg.Retry.IsResumable())
 
 		slog.Info("sending snapshot", "snapshot", snap.Name, "base", base)
 		if err := zfs.SendReceive(ctx, source, target, snap.Name, dp.TargetDataset, sendOpts, recvOpts, cfg.Retry.MaxRetries, time.Duration(cfg.Retry.DelaySeconds)*time.Second); err != nil {
