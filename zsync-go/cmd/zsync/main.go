@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -28,6 +29,7 @@ func main() {
 		configPath = flag.String("c", defaultConfig, "path to configuration file")
 		debug      = flag.Bool("d", false, "enable debug logging")
 		dryRun     = flag.Bool("dry-run", false, "build and display replication plan without executing")
+		logFile    = flag.String("l", "", "write log output to `file` instead of stderr")
 		showVer    = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Usage = usage
@@ -42,12 +44,23 @@ func main() {
 	if *debug {
 		level = slog.LevelDebug
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+
+	logWriter := io.Writer(os.Stderr)
+	if *logFile != "" {
+		f, err := os.OpenFile(*logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0640)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: cannot open log file %s: %v\n", *logFile, err)
+			os.Exit(1)
+		}
+		defer f.Close()
+		logWriter = f
+	}
+	logger := slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		slog.Error("failed to load configuration", "error", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -81,18 +94,20 @@ func main() {
 	targetClient := zfs.NewClient(localExec)
 
 	// Phase 1: Discover source datasets.
+	fmt.Println("Discovering source datasets...")
 	slog.Info("discovering source datasets")
 	srcState, err := replication.DiscoverSource(ctx, cfg, sourceClient)
 	if err != nil {
-		slog.Error("source discovery failed", "error", err)
+		fmt.Fprintf(os.Stderr, "error: source discovery failed: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Phase 2: Discover target datasets.
+	fmt.Println("Discovering target datasets...")
 	slog.Info("discovering target datasets")
 	tgtState, err := replication.DiscoverTarget(ctx, cfg, targetClient)
 	if err != nil {
-		slog.Error("target discovery failed", "error", err)
+		fmt.Fprintf(os.Stderr, "error: target discovery failed: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -112,18 +127,21 @@ func main() {
 	}
 
 	// Phase 4: Execute plan.
+	fmt.Println("\nExecuting replication plan...")
 	slog.Info("executing replication plan")
-	result, err := replication.Execute(ctx, plan, cfg, sourceClient, targetClient)
+	result, err := replication.Execute(ctx, plan, cfg, sourceClient, targetClient, os.Stdout)
 	if err != nil {
-		slog.Error("execution failed", "error", err)
+		fmt.Fprintf(os.Stderr, "error: execution failed: %v\n", err)
 		os.Exit(1)
 	}
 
 	if result.HasErrors() {
 		for ds, e := range result.SyncErrors {
+			fmt.Fprintf(os.Stderr, "error: sync %s: %v\n", ds, e)
 			slog.Error("sync error", "dataset", ds, "error", e)
 		}
 		for ds, e := range result.CleanupErrors {
+			fmt.Fprintf(os.Stderr, "error: cleanup %s: %v\n", ds, e)
 			slog.Error("cleanup error", "dataset", ds, "error", e)
 		}
 		os.Exit(1)
@@ -133,11 +151,12 @@ func main() {
 	if cfg.CheckZFS.Enabled {
 		slog.Info("running checkzfs monitoring")
 		if err := checkzfs.Run(ctx, cfg, localExec, sourceExec); err != nil {
-			slog.Error("checkzfs failed", "error", err)
+			fmt.Fprintf(os.Stderr, "error: checkzfs failed: %v\n", err)
 			os.Exit(1)
 		}
 	}
 
+	fmt.Println("Replication completed successfully.")
 	slog.Info("zsync completed successfully")
 }
 

@@ -3,6 +3,7 @@ package replication
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -30,7 +31,8 @@ func (r *ExecuteResult) HasErrors() bool {
 //
 // The target root is created first if needed. Execute never stops on the first
 // error — it processes all datasets and collects errors.
-func Execute(ctx context.Context, plan *Plan, cfg *config.Config, source, target *zfs.Client) (*ExecuteResult, error) {
+// Brief status messages are written to status (typically os.Stdout).
+func Execute(ctx context.Context, plan *Plan, cfg *config.Config, source, target *zfs.Client, status io.Writer) (*ExecuteResult, error) {
 	result := &ExecuteResult{
 		SyncErrors:    make(map[string]error),
 		CleanupErrors: make(map[string]error),
@@ -45,16 +47,33 @@ func Execute(ctx context.Context, plan *Plan, cfg *config.Config, source, target
 	}
 
 	// Step 2: Per-dataset sync + cleanup.
+	total := 0
+	for _, dp := range plan.Datasets {
+		if dp.Action != ActionSkip && dp.Action != ActionError {
+			total++
+		}
+	}
+
+	current := 0
 	for _, dp := range plan.Datasets {
 		var syncErr error
 		switch dp.Action {
 		case ActionSkip, ActionError:
 			continue
 		case ActionInitial:
+			current++
+			fmt.Fprintf(status, "  [%d/%d] %s → %s (%s, %d snapshots)\n",
+				current, total, dp.SourceDataset, dp.TargetDataset, dp.Action, len(dp.SendSnapshots))
 			syncErr = executeInitial(ctx, &dp, cfg, source, target)
 		case ActionReinitialize:
+			current++
+			fmt.Fprintf(status, "  [%d/%d] %s → %s (%s, %d snapshots)\n",
+				current, total, dp.SourceDataset, dp.TargetDataset, dp.Action, len(dp.SendSnapshots))
 			syncErr = executeReinitialize(ctx, &dp, cfg, source, target)
 		case ActionIncremental:
+			current++
+			fmt.Fprintf(status, "  [%d/%d] %s → %s (%s, %d snapshots)\n",
+				current, total, dp.SourceDataset, dp.TargetDataset, dp.Action, len(dp.SendSnapshots))
 			syncErr = executeIncremental(ctx, &dp, cfg, source, target)
 		}
 
