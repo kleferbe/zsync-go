@@ -132,6 +132,7 @@ func main() {
 	result, err := replication.Execute(ctx, plan, cfg, sourceClient, targetClient, os.Stdout)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: execution failed: %v\n", err)
+		slog.Error("execution error", "error", err)
 		os.Exit(1)
 	}
 
@@ -152,6 +153,7 @@ func main() {
 		slog.Info("running checkzfs monitoring")
 		if err := checkzfs.Run(ctx, cfg, localExec, sourceExec); err != nil {
 			fmt.Fprintf(os.Stderr, "error: checkzfs failed: %v\n", err)
+			slog.Error("checkzfs error", "error", err)
 			os.Exit(1)
 		}
 	}
