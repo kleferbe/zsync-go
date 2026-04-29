@@ -102,7 +102,7 @@ func buildArgs(cfg *config.Config) []string {
 
 // spoolLocally moves the temp file into the local Checkmk spool directory.
 func spoolLocally(ctx context.Context, localExec exec.Executor, tmpFile, spoolFileName string) error {
-	slog.Info("spooling checkzfs output locally", "dest", spoolDir)
+	slog.Info("spooling checkzfs output locally", "dest", spoolDir, "file", spoolFileName)
 
 	if _, err := localExec.Run(ctx, "mkdir", "-p", spoolDir); err != nil {
 		return fmt.Errorf("creating spool dir: %w", err)
@@ -119,7 +119,7 @@ func spoolLocally(ctx context.Context, localExec exec.Executor, tmpFile, spoolFi
 // spoolToSource copies the temp file to the source host's Checkmk spool
 // directory via scp, then removes the local temp file.
 func spoolToSource(ctx context.Context, cfg *config.Config, sourceExec exec.Executor, tmpFile, spoolFileName string) error {
-	slog.Info("spooling checkzfs output to source", "host", cfg.Source.SSH.Host)
+	slog.Info("spooling checkzfs output to source", "host", cfg.Source.SSH.Host, "file", spoolFileName)
 
 	// Ensure spool directory exists on source.
 	if _, err := sourceExec.Run(ctx, "mkdir", "-p", spoolDir); err != nil {

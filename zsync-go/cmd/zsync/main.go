@@ -147,10 +147,11 @@ func main() {
 		}
 		os.Exit(1)
 	}
-
+	fmt.Println("Replication completed successfully.")
 	// Phase 5: checkzfs monitoring.
 	if cfg.CheckZFS.Enabled {
-		slog.Info("running checkzfs monitoring")
+		fmt.Println("Running checkzfs...")
+		slog.Info("running checkzfs...")
 		if err := checkzfs.Run(ctx, cfg, localExec, sourceExec); err != nil {
 			fmt.Fprintf(os.Stderr, "error: checkzfs failed: %v\n", err)
 			slog.Error("checkzfs error", "error", err)
@@ -158,7 +159,6 @@ func main() {
 		}
 	}
 
-	fmt.Println("Replication completed successfully.")
 	slog.Info("zsync completed successfully")
 }
 
