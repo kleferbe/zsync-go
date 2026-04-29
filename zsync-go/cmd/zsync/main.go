@@ -14,6 +14,7 @@ import (
 	"github.com/kleferbe/zsync/internal/exec"
 	"github.com/kleferbe/zsync/internal/replication"
 	"github.com/kleferbe/zsync/internal/zfs"
+	"github.com/samber/lo"
 )
 
 var version = "dev"
@@ -152,7 +153,8 @@ func main() {
 	if cfg.CheckZFS.Enabled {
 		fmt.Println("Running checkzfs...")
 		slog.Info("running checkzfs...")
-		if err := checkzfs.Run(ctx, cfg, localExec, sourceExec); err != nil {
+		sourceDatasets := lo.Map(srcState.Datasets, func(ds replication.SourceDatasetInfo, _ int) string { return ds.Name })
+		if err := checkzfs.Run(ctx, cfg, localExec, sourceExec, sourceDatasets); err != nil {
 			fmt.Fprintf(os.Stderr, "error: checkzfs failed: %v\n", err)
 			slog.Error("checkzfs error", "error", err)
 			os.Exit(1)

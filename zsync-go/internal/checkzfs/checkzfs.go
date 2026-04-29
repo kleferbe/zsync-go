@@ -6,9 +6,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kleferbe/zsync/internal/config"
 	"github.com/kleferbe/zsync/internal/exec"
+	"github.com/samber/lo"
 )
 
 const (
@@ -22,7 +24,8 @@ const (
 // Run executes the checkzfs monitoring tool and places the output into the
 // Checkmk agent spool directory. Depending on configuration, the spool file
 // is placed locally or copied to the source host via scp.
-func Run(ctx context.Context, cfg *config.Config, localExec, sourceExec exec.Executor) error {
+// sourceDatasets is the list of dataset names being replicated (used for --filter).
+func Run(ctx context.Context, cfg *config.Config, localExec, sourceExec exec.Executor, sourceDatasets []string) error {
 	czCfg := cfg.CheckZFS
 
 	bin := czCfg.Path
@@ -44,7 +47,7 @@ func Run(ctx context.Context, cfg *config.Config, localExec, sourceExec exec.Exe
 	}
 
 	// Build checkzfs command arguments.
-	args := buildArgs(cfg)
+	args := buildArgs(cfg, sourceDatasets)
 
 	slog.Info("running checkzfs", "bin", bin, "args", args)
 	output, err := localExec.Run(ctx, bin, args...)
@@ -78,7 +81,8 @@ func Run(ctx context.Context, cfg *config.Config, localExec, sourceExec exec.Exe
 }
 
 // buildArgs constructs the checkzfs CLI arguments from configuration.
-func buildArgs(cfg *config.Config) []string {
+// sourceDatasets is the list of replicated dataset names.
+func buildArgs(cfg *config.Config, sourceDatasets []string) []string {
 	czCfg := cfg.CheckZFS
 
 	var args []string
@@ -94,8 +98,21 @@ func buildArgs(cfg *config.Config) []string {
 		"--maxsnapshots", czCfg.MaxSnapshotCount,
 		"--prefix", czCfg.Prefix,
 		"--replicafilter", fmt.Sprintf("^%s", cfg.Target.Dataset),
-		"--filter", cfg.SnapshotFilter.Regex(),
 	)
+
+	// --filter: regex matching source dataset names in checkzfs's internal
+	// "host#dataset" format. We prefix each name with "#" so the regex
+	// matches regardless of the host part.
+	if len(sourceDatasets) > 0 {
+		entries := lo.Map(sourceDatasets, func(ds string, _ int) string { return "#" + ds })
+		args = append(args, "--filter", strings.Join(entries, "|"))
+	}
+
+	// --snapshotfilter: snapshot name patterns (e.g. "hourly|daily|weekly|monthly").
+	snapshotRegex := cfg.SnapshotFilter.Regex()
+	if snapshotRegex != "" {
+		args = append(args, "--snapshotfilter", snapshotRegex)
+	}
 
 	return args
 }
