@@ -13,6 +13,7 @@ import (
 	"github.com/kleferbe/zsync/internal/config"
 	"github.com/kleferbe/zsync/internal/exec"
 	"github.com/kleferbe/zsync/internal/replication"
+	"github.com/kleferbe/zsync/internal/zabbix"
 	"github.com/kleferbe/zsync/internal/zfs"
 	"github.com/samber/lo"
 )
@@ -130,14 +131,11 @@ func main() {
 	// Phase 4: Execute plan.
 	fmt.Println("\nExecuting replication plan...")
 	slog.Info("executing replication plan")
-	result, err := replication.Execute(ctx, plan, cfg, sourceClient, targetClient, os.Stdout)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: execution failed: %v\n", err)
-		slog.Error("execution error", "error", err)
-		os.Exit(1)
-	}
-
-	if result.HasErrors() {
+	result, execErr := replication.Execute(ctx, plan, cfg, sourceClient, targetClient, os.Stdout)
+	if execErr != nil {
+		fmt.Fprintf(os.Stderr, "error: execution failed: %v\n", execErr)
+		slog.Error("execution error", "error", execErr)
+	} else if result.HasErrors() {
 		for ds, e := range result.SyncErrors {
 			fmt.Fprintf(os.Stderr, "error: sync %s: %v\n", ds, e)
 			slog.Error("sync error", "dataset", ds, "error", e)
@@ -146,21 +144,36 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: cleanup %s: %v\n", ds, e)
 			slog.Error("cleanup error", "dataset", ds, "error", e)
 		}
-		os.Exit(1)
+	} else {
+		fmt.Println("Replication completed successfully.")
 	}
-	fmt.Println("Replication completed successfully.")
-	// Phase 5: checkzfs monitoring.
+
+	failed := execErr != nil || (result != nil && result.HasErrors())
+
+	if cfg.Zabbix.Enabled {
+		fmt.Println("Writing Zabbix status...")
+		slog.Info("writing zabbix status")
+		if err := zabbix.Run(ctx, cfg, srcState, plan, result, execErr, targetClient, sourceExec); err != nil {
+			fmt.Fprintf(os.Stderr, "error: zabbix status failed: %v\n", err)
+			slog.Error("zabbix status error", "error", err)
+			failed = true
+		}
+	}
+
 	if cfg.CheckZFS.Enabled {
 		fmt.Println("Running checkzfs...")
-		slog.Info("running checkzfs...")
+		slog.Info("running checkzfs")
 		sourceDatasets := lo.Map(srcState.Datasets, func(ds replication.SourceDatasetInfo, _ int) string { return ds.Name })
 		if err := checkzfs.Run(ctx, cfg, localExec, sourceExec, sourceDatasets); err != nil {
 			fmt.Fprintf(os.Stderr, "error: checkzfs failed: %v\n", err)
 			slog.Error("checkzfs error", "error", err)
-			os.Exit(1)
+			failed = true
 		}
 	}
 
+	if failed {
+		os.Exit(1)
+	}
 	slog.Info("zsync completed successfully")
 }
 

@@ -51,3 +51,9 @@ checkzfs:
   max_snapshot_count: "150,165"
   spool: local          # "local" or "source"
   spool_max_age: 87000
+
+# Optional Zabbix status file. Thresholds stay in the Zabbix template.
+zabbix:
+  enabled: true
+  path: /var/lib/zabbix-status/zfs-backup.json
+  place: source         # "local" or "source"

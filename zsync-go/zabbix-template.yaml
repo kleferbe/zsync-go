@@ -1,0 +1,213 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: f539a7206ebd4d81b5c5571499c65007
+      name: Templates/Applications
+  templates:
+    - uuid: 1a8fb03b8b584ca0993639c3f28b99ec
+      template: 'Zsync Backup'
+      name: 'Zsync Backup'
+      description: 'Liest /var/lib/zabbix-status/zfs-backup.json über den aktiven Zabbix-Agenten. Schwellen stehen in den Makros.'
+      groups:
+        - name: Templates/Applications
+      items:
+        - uuid: 6e5b0b14ba8b45b9917b0b6ec50d3e76
+          name: 'Zsync-Status JSON'
+          type: ZABBIX_ACTIVE
+          key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+          delay: 1m
+          history: 7d
+          value_type: TEXT
+          trends: '0'
+        - uuid: 0663ba861f094c9882239677850e6dc3
+          name: 'Zsync ok'
+          type: DEPENDENT
+          key: zsync.ok
+          delay: '0'
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.ok
+            - type: BOOL_TO_DECIMAL
+          master_item:
+            key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+          triggers:
+            - uuid: 80a8367cae234ffaae97e6dde62e15b8
+              expression: 'last(/Zsync Backup/zsync.ok)=0'
+              name: 'Zsync-Lauf fehlgeschlagen'
+              opdata: '{?last(/Zsync Backup/zsync.error)}'
+              priority: HIGH
+        - uuid: 650aafdacdd3439bb8d0564a3cdd0d40
+          name: 'Zsync geschrieben'
+          type: DEPENDENT
+          key: zsync.written_at
+          delay: '0'
+          value_type: UNSIGNED
+          units: unixtime
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.writtenAt
+          master_item:
+            key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+          triggers:
+            - uuid: 631b5a8e867d4788a2a79195b2bc2874
+              expression: 'now()-last(/Zsync Backup/zsync.written_at)>((dayofweek()=1)*{$ZSYNC.STALE.SEC:"Mon"}+(dayofweek()=2)*{$ZSYNC.STALE.SEC:"Tue"}+(dayofweek()=3)*{$ZSYNC.STALE.SEC:"Wed"}+(dayofweek()=4)*{$ZSYNC.STALE.SEC:"Thu"}+(dayofweek()=5)*{$ZSYNC.STALE.SEC:"Fri"}+(dayofweek()=6)*{$ZSYNC.STALE.SEC:"Sat"}+(dayofweek()=7)*{$ZSYNC.STALE.SEC:"Sun"})'
+              name: 'Zsync-Status ist veraltet'
+              priority: HIGH
+        - uuid: af7a4a9320db40bd922df19986313755
+          name: 'Zsync Fehlertext'
+          type: DEPENDENT
+          key: zsync.error
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.error
+          master_item:
+            key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+      discovery_rules:
+        - uuid: b57662a8b3c24e35bfeebcccc703d826
+          name: 'Zsync Datasets'
+          type: DEPENDENT
+          key: zsync.dataset.discovery
+          delay: '0'
+          master_item:
+            key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.datasets
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var data = JSON.parse(value);
+                  return JSON.stringify(data.map(function (x) {
+                    return {'{#SOURCE}': x.sourceDataset};
+                  }));
+          item_prototypes:
+            - uuid: 5582cc0217a6408ea26fad1d56e793cd
+              name: '{#SOURCE}: gemeinsamer Snapshot'
+              type: DEPENDENT
+              key: 'zsync.dataset.common_snapshot[{#SOURCE}]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.datasets[?(@.sourceDataset=="{#SOURCE}")].commonSnapshot.first()'
+              master_item:
+                key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+            - uuid: 7dee96f25ada4e649e0fe21f2ec2debe
+              name: '{#SOURCE}: gemeinsamer Snapshot erstellt'
+              type: DEPENDENT
+              key: 'zsync.dataset.common_created[{#SOURCE}]'
+              delay: '0'
+              value_type: UNSIGNED
+              units: unixtime
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.datasets[?(@.sourceDataset=="{#SOURCE}")].commonSnapshotCreatedAt.first()'
+              master_item:
+                key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+              trigger_prototypes:
+                - uuid: 167b07f4c88940ac827b58d17a6edbcb
+                  expression: 'last(/Zsync Backup/zsync.dataset.common_created[{#SOURCE}])=0 or now()-last(/Zsync Backup/zsync.dataset.common_created[{#SOURCE}])>((dayofweek()=1)*{$ZSYNC.SNAPSHOT.STALE.SEC:"Mon"}+(dayofweek()=2)*{$ZSYNC.SNAPSHOT.STALE.SEC:"Tue"}+(dayofweek()=3)*{$ZSYNC.SNAPSHOT.STALE.SEC:"Wed"}+(dayofweek()=4)*{$ZSYNC.SNAPSHOT.STALE.SEC:"Thu"}+(dayofweek()=5)*{$ZSYNC.SNAPSHOT.STALE.SEC:"Fri"}+(dayofweek()=6)*{$ZSYNC.SNAPSHOT.STALE.SEC:"Sat"}+(dayofweek()=7)*{$ZSYNC.SNAPSHOT.STALE.SEC:"Sun"})'
+                  name: 'Dataset {#SOURCE} hat keinen aktuellen gemeinsamen Snapshot'
+                  priority: HIGH
+            - uuid: 8889934bc4634aae91d0552b27482135
+              name: '{#SOURCE}: neuester Quell-Snapshot'
+              type: DEPENDENT
+              key: 'zsync.dataset.latest_source[{#SOURCE}]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.datasets[?(@.sourceDataset=="{#SOURCE}")].latestSourceSnapshot.first()'
+              master_item:
+                key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+            - uuid: 769fa703839e4107b97379e9292cbfb6
+              name: '{#SOURCE}: neuester Quell-Snapshot erstellt'
+              type: DEPENDENT
+              key: 'zsync.dataset.latest_source_created[{#SOURCE}]'
+              delay: '0'
+              value_type: UNSIGNED
+              units: unixtime
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.datasets[?(@.sourceDataset=="{#SOURCE}")].latestSourceSnapshotCreatedAt.first()'
+              master_item:
+                key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+              trigger_prototypes:
+                - uuid: 16ae4896f97b409eaa16f21c13ef548a
+                  expression: 'last(/Zsync Backup/zsync.dataset.common_created[{#SOURCE}])>0 and (last(/Zsync Backup/zsync.dataset.latest_source_created[{#SOURCE}])-last(/Zsync Backup/zsync.dataset.common_created[{#SOURCE}]))>((dayofweek()=1)*{$ZSYNC.LAG.SEC:"Mon"}+(dayofweek()=2)*{$ZSYNC.LAG.SEC:"Tue"}+(dayofweek()=3)*{$ZSYNC.LAG.SEC:"Wed"}+(dayofweek()=4)*{$ZSYNC.LAG.SEC:"Thu"}+(dayofweek()=5)*{$ZSYNC.LAG.SEC:"Fri"}+(dayofweek()=6)*{$ZSYNC.LAG.SEC:"Sat"}+(dayofweek()=7)*{$ZSYNC.LAG.SEC:"Sun"})'
+                  name: 'Dataset {#SOURCE} hinkt der Quelle hinterher'
+                  priority: WARNING
+            - uuid: 8d7e60625c4d43e685c8b3314da6fa45
+              name: '{#SOURCE}: Quell-Snapshots'
+              type: DEPENDENT
+              key: 'zsync.dataset.source_count[{#SOURCE}]'
+              delay: '0'
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.datasets[?(@.sourceDataset=="{#SOURCE}")].sourceSnapshotCount.first()'
+              master_item:
+                key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+            - uuid: 97e2645be5c5494da0ef6b7e0ce7f811
+              name: '{#SOURCE}: Ziel-Snapshots'
+              type: DEPENDENT
+              key: 'zsync.dataset.target_count[{#SOURCE}]'
+              delay: '0'
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.datasets[?(@.sourceDataset=="{#SOURCE}")].targetSnapshotCount.first()'
+              master_item:
+                key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+              trigger_prototypes:
+                - uuid: f1f0f22df70d43259d6ab0e73f479db9
+                  expression: 'last(/Zsync Backup/zsync.dataset.target_count[{#SOURCE}])>last(/Zsync Backup/zsync.dataset.source_count[{#SOURCE}])+{$ZSYNC.SNAPSHOT.EXTRA}'
+                  name: 'Dataset {#SOURCE} behält mehr Snapshots als die Quelle'
+                  priority: WARNING
+            - uuid: 9c8231ca1fff46e98aff40217bf9597f
+              name: '{#SOURCE}: Fehler'
+              type: DEPENDENT
+              key: 'zsync.dataset.error[{#SOURCE}]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.datasets[?(@.sourceDataset=="{#SOURCE}")].error.first()'
+              master_item:
+                key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+              trigger_prototypes:
+                - uuid: fc993aade1954de296dad028f9979153
+                  expression: 'length(last(/Zsync Backup/zsync.dataset.error[{#SOURCE}]))>0'
+                  name: 'Dataset {#SOURCE} Replikation fehlgeschlagen'
+                  priority: HIGH
+      macros:
+        - macro: '{$ZSYNC.STALE.SEC}'
+          value: '93600'
+          description: 'Alter von writtenAt in Sekunden, ab dem der Status als veraltet gilt. Ein Wochentag überschreibt den Wert mit {$ZSYNC.STALE.SEC:"Mon"} bis "Sun".'
+        - macro: '{$ZSYNC.SNAPSHOT.STALE.SEC}'
+          value: '93600'
+          description: 'Alter des gemeinsamen Snapshots in Sekunden, ab dem das Replikat als veraltet gilt. Ein Wochentag überschreibt den Wert mit {$ZSYNC.SNAPSHOT.STALE.SEC:"Mon"} bis "Sun".'
+        - macro: '{$ZSYNC.LAG.SEC}'
+          value: '7200'
+          description: 'Erlaubter Abstand in Sekunden zwischen neuestem Quell-Snapshot und gemeinsamem Snapshot. Ein Wochentag überschreibt den Wert mit {$ZSYNC.LAG.SEC:"Mon"} bis "Sun".'
+        - macro: '{$ZSYNC.SNAPSHOT.EXTRA}'
+          value: '0'
+          description: 'Erlaubte zusätzliche Snapshots auf dem Ziel gegenüber der Quelle.'

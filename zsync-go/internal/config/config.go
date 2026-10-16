@@ -53,6 +53,22 @@ func (s SSHConfig) IsLocal() bool {
 	return s.Host == ""
 }
 
+const (
+	PlaceLocal  = "local"
+	PlaceSource = "source"
+)
+
+// ZabbixConfig configures the optional Zabbix status file.
+type ZabbixConfig struct {
+	// Enabled writes a JSON status file after each run.
+	Enabled bool `yaml:"enabled"`
+	// Path is the status file read by the Zabbix agent.
+	Path string `yaml:"path"`
+	// Place is "local" or "source". "source" copies the file over SSH
+	// when a remote source host is configured.
+	Place string `yaml:"place"`
+}
+
 // CheckZFSConfig configures the optional checkzfs monitoring integration.
 type CheckZFSConfig struct {
 	// Enabled enables checkzfs monitoring.
@@ -119,8 +135,10 @@ type Config struct {
 	// SnapshotFilter defines which snapshots are eligible for replication
 	// and how many to keep per interval on the target.
 	SnapshotFilter SnapshotFilter `yaml:"snapshot_filter"`
-	// CheckZFS configures the optional monitoring integration.
+	// CheckZFS configures the optional Checkmk monitoring integration.
 	CheckZFS CheckZFSConfig `yaml:"checkzfs"`
+	// Zabbix configures the optional Zabbix status file.
+	Zabbix ZabbixConfig `yaml:"zabbix"`
 	// Retry controls retry behaviour for failed send/receive operations.
 	Retry RetryConfig `yaml:"retry"`
 }
@@ -171,6 +189,12 @@ func (c *Config) defaults() {
 	if c.CheckZFS.SpoolMaxAge == 0 {
 		c.CheckZFS.SpoolMaxAge = 87000
 	}
+	if c.Zabbix.Path == "" {
+		c.Zabbix.Path = "/var/lib/zabbix-status/zfs-backup.json"
+	}
+	if c.Zabbix.Place == "" {
+		c.Zabbix.Place = PlaceSource
+	}
 }
 
 // Validate checks that all required fields are present and consistent.
@@ -208,8 +232,11 @@ func (c *Config) Validate() error {
 	if !c.Source.SSH.IsLocal() && c.Source.SSH.Port < 1 {
 		return fmt.Errorf("config: source.ssh.port must be >= 1 when source.ssh.host is set")
 	}
-	if !lo.Contains([]string{"local", "source"}, c.CheckZFS.Spool) {
+	if !lo.Contains([]string{PlaceLocal, PlaceSource}, c.CheckZFS.Spool) {
 		return fmt.Errorf("config: checkzfs.spool must be \"local\" or \"source\", got %q", c.CheckZFS.Spool)
+	}
+	if !lo.Contains([]string{PlaceLocal, PlaceSource}, c.Zabbix.Place) {
+		return fmt.Errorf("config: zabbix.place must be \"local\" or \"source\", got %q", c.Zabbix.Place)
 	}
 	return nil
 }

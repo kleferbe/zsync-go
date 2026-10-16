@@ -93,6 +93,12 @@ source:
 	if cfg.CheckZFS.Spool != "local" {
 		t.Errorf("default checkzfs.spool = %q, want %q", cfg.CheckZFS.Spool, "local")
 	}
+	if cfg.Zabbix.Place != PlaceSource {
+		t.Errorf("default zabbix.place = %q, want %q", cfg.Zabbix.Place, PlaceSource)
+	}
+	if cfg.Zabbix.Path != "/var/lib/zabbix-status/zfs-backup.json" {
+		t.Errorf("default zabbix.path = %q", cfg.Zabbix.Path)
+	}
 	if !cfg.Source.SSH.IsLocal() {
 		t.Error("expected local mode when source.ssh.host is empty")
 	}
