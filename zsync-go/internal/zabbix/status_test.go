@@ -43,7 +43,12 @@ func TestBuildReportCommonSnapshotAndCounts(t *testing.T) {
 		},
 	}
 
-	report := buildReport(time.Unix(1000, 0), filter, source, plan, targetSnaps, nil, &replication.ExecuteResult{}, nil)
+	report := buildReport(time.Unix(1000, 0), filter, source, plan, targetSnaps, nil, &replication.ExecuteResult{
+		Duration: 65 * time.Second,
+		Datasets: map[string]replication.DatasetResult{
+			"tank/vm": {BytesSent: 99, Duration: 5 * time.Second},
+		},
+	}, nil)
 	if !report.OK {
 		t.Fatalf("ok = false, error %q", report.Error)
 	}
@@ -60,14 +65,20 @@ func TestBuildReportCommonSnapshotAndCounts(t *testing.T) {
 	if ds.SourceSnapshotCount != 3 || ds.TargetSnapshotCount != 2 {
 		t.Errorf("counts = %d/%d", ds.SourceSnapshotCount, ds.TargetSnapshotCount)
 	}
+	if report.DurationSec != 65 || ds.BytesSent != 99 || ds.DurationSec != 5 {
+		t.Errorf("duration %d, bytes %d, dataset duration %d", report.DurationSec, ds.BytesSent, ds.DurationSec)
+	}
 }
 
 func TestBuildReportExecuteError(t *testing.T) {
 	report := buildReport(time.Unix(1, 0), nil, nil, &replication.Plan{
 		Datasets: []replication.DatasetPlan{{SourceDataset: "tank"}},
-	}, nil, nil, nil, errors.New("creating target root"))
+	}, nil, nil, &replication.ExecuteResult{Duration: 1500 * time.Millisecond}, errors.New("creating target root"))
 	if report.OK || report.Error != "creating target root" || len(report.Datasets) != 0 {
 		t.Fatalf("report = %+v", report)
+	}
+	if report.DurationSec != 2 {
+		t.Errorf("durationSec = %d", report.DurationSec)
 	}
 }
 

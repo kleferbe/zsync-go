@@ -20,10 +20,11 @@ import (
 
 // Report is the status file read by the Zabbix agent.
 type Report struct {
-	OK        bool            `json:"ok"`
-	WrittenAt int64           `json:"writtenAt"`
-	Error     string          `json:"error"`
-	Datasets  []DatasetStatus `json:"datasets"`
+	OK          bool            `json:"ok"`
+	WrittenAt   int64           `json:"writtenAt"`
+	Error       string          `json:"error"`
+	DurationSec int64           `json:"durationSec"`
+	Datasets    []DatasetStatus `json:"datasets"`
 }
 
 // DatasetStatus is the replication state of one dataset.
@@ -36,6 +37,8 @@ type DatasetStatus struct {
 	LatestSourceSnapshotCreatedAt int64  `json:"latestSourceSnapshotCreatedAt"`
 	SourceSnapshotCount           int    `json:"sourceSnapshotCount"`
 	TargetSnapshotCount           int    `json:"targetSnapshotCount"`
+	BytesSent                     int64  `json:"bytesSent"`
+	DurationSec                   int64  `json:"durationSec"`
 	Error                         string `json:"error"`
 }
 
@@ -89,6 +92,7 @@ func buildReport(
 		WrittenAt: now.Unix(),
 		Datasets:  []DatasetStatus{},
 	}
+	report.DurationSec = durationSec(result)
 	if execErr != nil {
 		report.Error = execErr.Error()
 		return report
@@ -106,7 +110,7 @@ func buildReport(
 		tgtGUIDs := lo.SliceToMap(tgtSnaps, func(s zfs.Snapshot) (string, struct{}) {
 			return s.GUID, struct{}{}
 		})
-		return datasetStatus(dp, srcSnaps, tgtSnaps, tgtGUIDs, datasetProblems(dp, result, listErrs))
+		return datasetStatus(dp, srcSnaps, tgtSnaps, tgtGUIDs, datasetProblems(dp, result, listErrs), datasetResult(result, dp.SourceDataset))
 	})
 
 	problems := lo.FilterMap(report.Datasets, func(ds DatasetStatus, _ int) (string, bool) {
@@ -142,12 +146,28 @@ func datasetProblems(dp replication.DatasetPlan, result *replication.ExecuteResu
 	return strings.Join(parts, "; ")
 }
 
-func datasetStatus(dp replication.DatasetPlan, srcSnaps, tgtSnaps []zfs.Snapshot, tgtGUIDs map[string]struct{}, problem string) DatasetStatus {
+func durationSec(result *replication.ExecuteResult) int64 {
+	if result == nil {
+		return 0
+	}
+	return int64(result.Duration.Round(time.Second) / time.Second)
+}
+
+func datasetResult(result *replication.ExecuteResult, source string) replication.DatasetResult {
+	if result == nil {
+		return replication.DatasetResult{}
+	}
+	return result.Datasets[source]
+}
+
+func datasetStatus(dp replication.DatasetPlan, srcSnaps, tgtSnaps []zfs.Snapshot, tgtGUIDs map[string]struct{}, problem string, measured replication.DatasetResult) DatasetStatus {
 	status := DatasetStatus{
 		SourceDataset:       dp.SourceDataset,
 		TargetDataset:       dp.TargetDataset,
 		SourceSnapshotCount: len(srcSnaps),
 		TargetSnapshotCount: len(tgtSnaps),
+		BytesSent:           measured.BytesSent,
+		DurationSec:         int64(measured.Duration.Round(time.Second) / time.Second),
 		Error:               problem,
 	}
 	if len(srcSnaps) > 0 {

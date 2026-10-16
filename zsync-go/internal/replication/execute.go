@@ -11,6 +11,16 @@ import (
 	"github.com/kleferbe/zsync/internal/zfs"
 )
 
+// DatasetResult is the measured outcome of one dataset in this run.
+// Skipped datasets have no entry.
+type DatasetResult struct {
+	// BytesSent is the number of bytes written into the send/receive pipe,
+	// summed over every snapshot and every attempt, including partial failures.
+	BytesSent int64
+	// Duration is the wall-clock time of sync and cleanup.
+	Duration time.Duration
+}
+
 // ExecuteResult holds the outcome of executing a plan.
 type ExecuteResult struct {
 	// SyncErrors collects per-dataset errors from the send/receive phase.
@@ -18,6 +28,10 @@ type ExecuteResult struct {
 	SyncErrors map[string]error
 	// CleanupErrors collects per-dataset errors from the cleanup phase.
 	CleanupErrors map[string]error
+	// Duration is the wall-clock time of the whole execution.
+	Duration time.Duration
+	// Datasets holds bytes and runtime for each dataset that was synced.
+	Datasets map[string]DatasetResult
 }
 
 // HasErrors returns true if any sync or cleanup errors occurred.
@@ -36,13 +50,16 @@ func Execute(ctx context.Context, plan *Plan, cfg *config.Config, source, target
 	result := &ExecuteResult{
 		SyncErrors:    make(map[string]error),
 		CleanupErrors: make(map[string]error),
+		Datasets:      make(map[string]DatasetResult),
 	}
+	started := time.Now()
+	defer func() { result.Duration = time.Since(started) }()
 
 	// Step 1: Create target root if needed.
 	if plan.NeedTargetRoot {
 		slog.Info("creating target root dataset", "dataset", plan.TargetRootDataset)
 		if err := target.CreateDataset(ctx, plan.TargetRootDataset, true, nil); err != nil {
-			return nil, fmt.Errorf("creating target root %s: %w", plan.TargetRootDataset, err)
+			return result, fmt.Errorf("creating target root %s: %w", plan.TargetRootDataset, err)
 		}
 	}
 
@@ -56,39 +73,39 @@ func Execute(ctx context.Context, plan *Plan, cfg *config.Config, source, target
 
 	current := 0
 	for _, dp := range plan.Datasets {
+		if dp.Action == ActionSkip || dp.Action == ActionError {
+			continue
+		}
+
+		current++
+		fmt.Fprintf(status, "  [%d/%d] %s → %s (%s, %d snapshots)\n",
+			current, total, dp.SourceDataset, dp.TargetDataset, dp.Action, len(dp.SendSnapshots))
+		dsStarted := time.Now()
+
+		var bytes int64
 		var syncErr error
 		switch dp.Action {
-		case ActionSkip, ActionError:
-			continue
 		case ActionInitial:
-			current++
-			fmt.Fprintf(status, "  [%d/%d] %s → %s (%s, %d snapshots)\n",
-				current, total, dp.SourceDataset, dp.TargetDataset, dp.Action, len(dp.SendSnapshots))
-			syncErr = executeInitial(ctx, &dp, cfg, source, target)
+			bytes, syncErr = executeInitial(ctx, &dp, cfg, source, target)
 		case ActionReinitialize:
-			current++
-			fmt.Fprintf(status, "  [%d/%d] %s → %s (%s, %d snapshots)\n",
-				current, total, dp.SourceDataset, dp.TargetDataset, dp.Action, len(dp.SendSnapshots))
-			syncErr = executeReinitialize(ctx, &dp, cfg, source, target)
+			bytes, syncErr = executeReinitialize(ctx, &dp, cfg, source, target)
 		case ActionIncremental:
-			current++
-			fmt.Fprintf(status, "  [%d/%d] %s → %s (%s, %d snapshots)\n",
-				current, total, dp.SourceDataset, dp.TargetDataset, dp.Action, len(dp.SendSnapshots))
-			syncErr = executeIncremental(ctx, &dp, cfg, source, target)
+			bytes, syncErr = executeIncremental(ctx, &dp, cfg, source, target)
 		}
 
 		if syncErr != nil {
 			slog.Error("sync failed", "dataset", dp.SourceDataset, "action", dp.Action, "error", syncErr)
 			result.SyncErrors[dp.SourceDataset] = syncErr
-			continue
-		}
-
-		// Cleanup immediately after successful sync.
-		if len(dp.Cleanup) > 0 {
+		} else if len(dp.Cleanup) > 0 {
 			if err := executeCleanup(ctx, &dp, target); err != nil {
 				slog.Error("cleanup failed", "dataset", dp.SourceDataset, "error", err)
 				result.CleanupErrors[dp.SourceDataset] = err
 			}
+		}
+
+		result.Datasets[dp.SourceDataset] = DatasetResult{
+			BytesSent: bytes,
+			Duration:  time.Since(dsStarted),
 		}
 	}
 
@@ -113,9 +130,10 @@ func buildRecvOpts(dsType zfs.DatasetType, tag string, force bool, resumable boo
 
 // executeInitial sends all snapshots for a new dataset.
 // The first snapshot is a full send, subsequent ones are incremental.
-func executeInitial(ctx context.Context, dp *DatasetPlan, cfg *config.Config, source, target *zfs.Client) error {
+func executeInitial(ctx context.Context, dp *DatasetPlan, cfg *config.Config, source, target *zfs.Client) (int64, error) {
 	slog.Info("starting initial replication", "source", dp.SourceDataset, "target", dp.TargetDataset, "snapshots", len(dp.SendSnapshots))
 
+	var sent int64
 	for i, snap := range dp.SendSnapshots {
 		sendOpts := zfs.SendOptions{Raw: true}
 		recvOpts := buildRecvOpts(dp.DatasetType, cfg.Source.Tag, i > 0, cfg.Retry.IsResumable())
@@ -129,12 +147,14 @@ func executeInitial(ctx context.Context, dp *DatasetPlan, cfg *config.Config, so
 		}
 
 		slog.Info("sending snapshot", "snapshot", snap.Name, "full", i == 0)
-		if err := zfs.SendReceive(ctx, source, target, snap.Name, dp.TargetDataset, sendOpts, recvOpts, cfg.Retry.MaxRetries, time.Duration(cfg.Retry.DelaySeconds)*time.Second); err != nil {
-			return fmt.Errorf("sending %s: %w", snap.Name, err)
+		n, err := zfs.SendReceive(ctx, source, target, snap.Name, dp.TargetDataset, sendOpts, recvOpts, cfg.Retry.MaxRetries, time.Duration(cfg.Retry.DelaySeconds)*time.Second)
+		sent += n
+		if err != nil {
+			return sent, fmt.Errorf("sending %s: %w", snap.Name, err)
 		}
 	}
 
-	return nil
+	return sent, nil
 }
 
 // executeReinitialize renames the existing target, then performs a fresh initial sync.
@@ -143,21 +163,21 @@ func executeInitial(ctx context.Context, dp *DatasetPlan, cfg *config.Config, so
 //
 //	zfs rename <target> <target-old>
 //	(then same as executeInitial)
-func executeReinitialize(ctx context.Context, dp *DatasetPlan, cfg *config.Config, source, target *zfs.Client) error {
+func executeReinitialize(ctx context.Context, dp *DatasetPlan, cfg *config.Config, source, target *zfs.Client) (int64, error) {
 	slog.Info("reinitializing dataset",
 		"target", dp.TargetDataset,
 		"rename_to", dp.RenameExistingTarget,
 	)
 
 	if err := target.RenameDataset(ctx, dp.TargetDataset, dp.RenameExistingTarget); err != nil {
-		return fmt.Errorf("renaming %s to %s: %w", dp.TargetDataset, dp.RenameExistingTarget, err)
+		return 0, fmt.Errorf("renaming %s to %s: %w", dp.TargetDataset, dp.RenameExistingTarget, err)
 	}
 
 	return executeInitial(ctx, dp, cfg, source, target)
 }
 
 // executeIncremental sends pending snapshots incrementally from the common snapshot.
-func executeIncremental(ctx context.Context, dp *DatasetPlan, cfg *config.Config, source, target *zfs.Client) error {
+func executeIncremental(ctx context.Context, dp *DatasetPlan, cfg *config.Config, source, target *zfs.Client) (int64, error) {
 	slog.Info("starting incremental replication",
 		"source", dp.SourceDataset,
 		"target", dp.TargetDataset,
@@ -166,6 +186,7 @@ func executeIncremental(ctx context.Context, dp *DatasetPlan, cfg *config.Config
 	)
 
 	base := dp.CommonSnapshot.Name
+	var sent int64
 	for _, snap := range dp.SendSnapshots {
 		sendOpts := zfs.SendOptions{
 			Raw:             true,
@@ -174,14 +195,16 @@ func executeIncremental(ctx context.Context, dp *DatasetPlan, cfg *config.Config
 		recvOpts := buildRecvOpts(dp.DatasetType, cfg.Source.Tag, true, cfg.Retry.IsResumable())
 
 		slog.Info("sending snapshot", "snapshot", snap.Name, "base", base)
-		if err := zfs.SendReceive(ctx, source, target, snap.Name, dp.TargetDataset, sendOpts, recvOpts, cfg.Retry.MaxRetries, time.Duration(cfg.Retry.DelaySeconds)*time.Second); err != nil {
-			return fmt.Errorf("sending %s (base %s): %w", snap.Name, base, err)
+		n, err := zfs.SendReceive(ctx, source, target, snap.Name, dp.TargetDataset, sendOpts, recvOpts, cfg.Retry.MaxRetries, time.Duration(cfg.Retry.DelaySeconds)*time.Second)
+		sent += n
+		if err != nil {
+			return sent, fmt.Errorf("sending %s (base %s): %w", snap.Name, base, err)
 		}
 
 		base = snap.Name
 	}
 
-	return nil
+	return sent, nil
 }
 
 // executeCleanup removes old snapshots on the target as planned.

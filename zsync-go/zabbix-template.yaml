@@ -69,6 +69,20 @@ zabbix_export:
                 - $.error
           master_item:
             key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+        - uuid: 28cb6531dbcb403aaa426e628ef050f8
+          name: 'Zsync Laufzeit'
+          type: DEPENDENT
+          key: zsync.duration_sec
+          delay: '0'
+          history: 365d
+          value_type: UNSIGNED
+          units: s
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.durationSec
+          master_item:
+            key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
       discovery_rules:
         - uuid: b57662a8b3c24e35bfeebcccc703d826
           name: 'Zsync Datasets'
@@ -180,6 +194,34 @@ zabbix_export:
                   expression: 'last(/Zsync Backup/zsync.dataset.target_count[{#SOURCE}])>last(/Zsync Backup/zsync.dataset.source_count[{#SOURCE}])+{$ZSYNC.SNAPSHOT.EXTRA}'
                   name: 'Dataset {#SOURCE} behält mehr Snapshots als die Quelle'
                   priority: WARNING
+            - uuid: e12c71f8dcac43a98dfa8770d8c1c241
+              name: '{#SOURCE}: übertragen'
+              type: DEPENDENT
+              key: 'zsync.dataset.bytes_sent[{#SOURCE}]'
+              delay: '0'
+              history: 365d
+              value_type: UNSIGNED
+              units: B
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.datasets[?(@.sourceDataset=="{#SOURCE}")].bytesSent.first()'
+              master_item:
+                key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
+            - uuid: 3cf12a912cf04594b4f2ba311381c3e3
+              name: '{#SOURCE}: Laufzeit'
+              type: DEPENDENT
+              key: 'zsync.dataset.duration_sec[{#SOURCE}]'
+              delay: '0'
+              history: 365d
+              value_type: UNSIGNED
+              units: s
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.datasets[?(@.sourceDataset=="{#SOURCE}")].durationSec.first()'
+              master_item:
+                key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
             - uuid: 9c8231ca1fff46e98aff40217bf9597f
               name: '{#SOURCE}: Fehler'
               type: DEPENDENT

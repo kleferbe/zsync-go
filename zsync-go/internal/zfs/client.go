@@ -191,10 +191,12 @@ type ReceiveOptions struct {
 }
 
 // SendReceive pipes zfs send on the source to zfs receive on the target.
+// It returns the number of bytes written into the pipe, summed over every
+// attempt, including bytes from a failed attempt.
 // If maxRetries > 0, failed attempts are retried with retryDelay between
 // attempts. When recvOpts.Resumable is true, the receive uses -s and retries
 // attempt to resume via receive_resume_token before falling back to a fresh send.
-func SendReceive(ctx context.Context, source *Client, target *Client, snapshot string, targetDataset string, sendOpts SendOptions, recvOpts ReceiveOptions, maxRetries int, retryDelay time.Duration) error {
+func SendReceive(ctx context.Context, source *Client, target *Client, snapshot string, targetDataset string, sendOpts SendOptions, recvOpts ReceiveOptions, maxRetries int, retryDelay time.Duration) (int64, error) {
 	sendArgs := buildSendArgs(snapshot, sendOpts)
 	recvArgs := buildReceiveArgs(targetDataset, recvOpts)
 
@@ -206,6 +208,7 @@ func SendReceive(ctx context.Context, source *Client, target *Client, snapshot s
 	)
 
 	attempts := 1 + maxRetries
+	var sent int64
 	var lastErr error
 
 	for attempt := 1; attempt <= attempts; attempt++ {
@@ -219,7 +222,7 @@ func SendReceive(ctx context.Context, source *Client, target *Client, snapshot s
 
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return sent, ctx.Err()
 			case <-time.After(retryDelay):
 			}
 		}
@@ -238,12 +241,14 @@ func SendReceive(ctx context.Context, source *Client, target *Client, snapshot s
 			}
 		}
 
-		lastErr = source.exec.RunPipe(ctx, target.exec, "zfs", currentSendArgs, "zfs", recvArgs)
+		n, err := source.exec.RunPipe(ctx, target.exec, "zfs", currentSendArgs, "zfs", recvArgs)
+		sent += n
+		lastErr = err
 		if lastErr == nil {
 			if attempt > 1 {
 				slog.Info("send/receive succeeded after retry", "attempt", attempt, "snapshot", snapshot)
 			}
-			return nil
+			return sent, nil
 		}
 
 		slog.Warn("send/receive failed",
@@ -254,7 +259,7 @@ func SendReceive(ctx context.Context, source *Client, target *Client, snapshot s
 		)
 	}
 
-	return lastErr
+	return sent, lastErr
 }
 
 // getResumeToken reads the receive_resume_token property from a dataset.

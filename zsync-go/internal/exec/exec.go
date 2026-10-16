@@ -27,7 +27,9 @@ type Executor interface {
 	// RunPipe connects the stdout of a sender command to the stdin of a
 	// receiver command. This is used for zfs send | zfs receive pipelines.
 	// The sender runs on this executor; the receiver runs on recvExec.
-	RunPipe(ctx context.Context, recvExec Executor, sendName string, sendArgs []string, recvName string, recvArgs []string) error
+	// The returned count is the number of bytes written into the pipe,
+	// including a partial transfer when the command fails.
+	RunPipe(ctx context.Context, recvExec Executor, sendName string, sendArgs []string, recvName string, recvArgs []string) (int64, error)
 
 	// Command returns an *osexec.Cmd ready to start. This is the low-level
 	// building block used by Run and RunPipe.
@@ -64,7 +66,7 @@ func (l *LocalExecutor) Command(ctx context.Context, name string, args ...string
 	return osexec.CommandContext(ctx, name, args...)
 }
 
-func (l *LocalExecutor) RunPipe(ctx context.Context, recvExec Executor, sendName string, sendArgs []string, recvName string, recvArgs []string) error {
+func (l *LocalExecutor) RunPipe(ctx context.Context, recvExec Executor, sendName string, sendArgs []string, recvName string, recvArgs []string) (int64, error) {
 	return runPipe(ctx, l, recvExec, sendName, sendArgs, recvName, recvArgs)
 }
 
@@ -143,7 +145,7 @@ func (s *SSHExecutor) Command(ctx context.Context, name string, args ...string) 
 	return osexec.CommandContext(ctx, "ssh", sshCmdArgs...)
 }
 
-func (s *SSHExecutor) RunPipe(ctx context.Context, recvExec Executor, sendName string, sendArgs []string, recvName string, recvArgs []string) error {
+func (s *SSHExecutor) RunPipe(ctx context.Context, recvExec Executor, sendName string, sendArgs []string, recvName string, recvArgs []string) (int64, error) {
 	return runPipe(ctx, s, recvExec, sendName, sendArgs, recvName, recvArgs)
 }
 
@@ -158,12 +160,13 @@ func (s *SSHExecutor) String() string {
 // runPipe connects stdout of the sender to stdin of the receiver.
 // Both sides are waited on concurrently so that a failure on either
 // side is detected immediately and the other side is unblocked.
-func runPipe(ctx context.Context, sendExec, recvExec Executor, sendName string, sendArgs []string, recvName string, recvArgs []string) error {
+func runPipe(ctx context.Context, sendExec, recvExec Executor, sendName string, sendArgs []string, recvName string, recvArgs []string) (int64, error) {
 	sendCmd := sendExec.Command(ctx, sendName, sendArgs...)
 	recvCmd := recvExec.Command(ctx, recvName, recvArgs...)
 
 	pr, pw := io.Pipe()
-	sendCmd.Stdout = pw
+	sent := &countingWriter{w: pw}
+	sendCmd.Stdout = sent
 	recvCmd.Stdin = pr
 
 	var sendStderr, recvStderr bytes.Buffer
@@ -173,11 +176,11 @@ func runPipe(ctx context.Context, sendExec, recvExec Executor, sendName string, 
 	slog.Debug("exec pipe", "send", sendCmd.String(), "recv", recvCmd.String())
 
 	if err := recvCmd.Start(); err != nil {
-		return fmt.Errorf("starting receiver %q: %w", recvCmd.String(), err)
+		return sent.n, fmt.Errorf("starting receiver %q: %w", recvCmd.String(), err)
 	}
 	if err := sendCmd.Start(); err != nil {
 		_ = recvCmd.Process.Kill()
-		return fmt.Errorf("starting sender %q: %w", sendCmd.String(), err)
+		return sent.n, fmt.Errorf("starting sender %q: %w", sendCmd.String(), err)
 	}
 
 	// Wait for both sides concurrently. If either side exits (especially
@@ -217,18 +220,30 @@ func runPipe(ctx context.Context, sendExec, recvExec Executor, sendName string, 
 		// The receiver error is the root cause; the sender error is
 		// a side-effect of being killed.
 		if recvErr != nil {
-			return fmt.Errorf("receiver %q failed: %w\nstderr: %s", recvCmd.String(), recvErr, recvStderr.String())
+			return sent.n, fmt.Errorf("receiver %q failed: %w\nstderr: %s", recvCmd.String(), recvErr, recvStderr.String())
 		}
-		return nil
+		return sent.n, nil
 	}
 
 	if sendErr != nil {
-		return fmt.Errorf("sender %q failed: %w\nstderr: %s", sendCmd.String(), sendErr, sendStderr.String())
+		return sent.n, fmt.Errorf("sender %q failed: %w\nstderr: %s", sendCmd.String(), sendErr, sendStderr.String())
 	}
 	if recvErr != nil {
-		return fmt.Errorf("receiver %q failed: %w\nstderr: %s", recvCmd.String(), recvErr, recvStderr.String())
+		return sent.n, fmt.Errorf("receiver %q failed: %w\nstderr: %s", recvCmd.String(), recvErr, recvStderr.String())
 	}
-	return nil
+	return sent.n, nil
+}
+
+// countingWriter counts the bytes written to w.
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // shellQuote wraps a string in single quotes for safe shell transport.
