@@ -189,11 +189,6 @@ zabbix_export:
                     - '$.datasets[?(@.sourceDataset=="{#SOURCE}")].targetSnapshotCount.first()'
               master_item:
                 key: 'vfs.file.contents[/var/lib/zabbix-status/zfs-backup.json]'
-              trigger_prototypes:
-                - uuid: f1f0f22df70d43259d6ab0e73f479db9
-                  expression: 'last(/Zsync Backup/zsync.dataset.target_count[{#SOURCE}])>last(/Zsync Backup/zsync.dataset.source_count[{#SOURCE}])+{$ZSYNC.SNAPSHOT.EXTRA}'
-                  name: 'Dataset {#SOURCE} behält mehr Snapshots als die Quelle'
-                  priority: WARNING
             - uuid: e12c71f8dcac43a98dfa8770d8c1c241
               name: '{#SOURCE}: übertragen'
               type: DEPENDENT
@@ -250,6 +245,3 @@ zabbix_export:
         - macro: '{$ZSYNC.LAG.SEC}'
           value: '7200'
           description: 'Erlaubter Abstand in Sekunden zwischen neuestem Quell-Snapshot und gemeinsamem Snapshot. Ein Wochentag überschreibt den Wert mit {$ZSYNC.LAG.SEC:"Mon"} bis "Sun".'
-        - macro: '{$ZSYNC.SNAPSHOT.EXTRA}'
-          value: '0'
-          description: 'Erlaubte zusätzliche Snapshots auf dem Ziel gegenüber der Quelle.'
