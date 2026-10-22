@@ -18,6 +18,9 @@ zabbix_export:
           delay: 1m
           history: 7d
           value_type: TEXT
+          tags:
+            - tag: Application
+              value: 'zsync-backup'
           trends: '0'
         - uuid: 0663ba861f094c9882239677850e6dc3
           name: 'Zsync ok'
@@ -25,6 +28,9 @@ zabbix_export:
           key: zsync.ok
           delay: '0'
           value_type: UNSIGNED
+          tags:
+            - tag: Application
+              value: 'zsync-backup'
           preprocessing:
             - type: JSONPATH
               parameters:
@@ -44,6 +50,9 @@ zabbix_export:
           key: zsync.written_at
           delay: '0'
           value_type: UNSIGNED
+          tags:
+            - tag: Application
+              value: 'zsync-backup'
           units: unixtime
           preprocessing:
             - type: JSONPATH
@@ -62,6 +71,9 @@ zabbix_export:
           key: zsync.error
           delay: '0'
           value_type: TEXT
+          tags:
+            - tag: Application
+              value: 'zsync-backup'
           trends: '0'
           preprocessing:
             - type: JSONPATH
@@ -76,6 +88,9 @@ zabbix_export:
           delay: '0'
           history: 365d
           value_type: UNSIGNED
+          tags:
+            - tag: Application
+              value: 'zsync-backup'
           units: s
           preprocessing:
             - type: JSONPATH
@@ -109,6 +124,9 @@ zabbix_export:
               key: 'zsync.dataset.common_snapshot[{#SOURCE}]'
               delay: '0'
               value_type: TEXT
+              tags:
+                - tag: Application
+                  value: 'zsync-backup'
               trends: '0'
               preprocessing:
                 - type: JSONPATH
@@ -122,6 +140,9 @@ zabbix_export:
               key: 'zsync.dataset.common_created[{#SOURCE}]'
               delay: '0'
               value_type: UNSIGNED
+              tags:
+                - tag: Application
+                  value: 'zsync-backup'
               units: unixtime
               preprocessing:
                 - type: JSONPATH
@@ -140,6 +161,9 @@ zabbix_export:
               key: 'zsync.dataset.latest_source[{#SOURCE}]'
               delay: '0'
               value_type: TEXT
+              tags:
+                - tag: Application
+                  value: 'zsync-backup'
               trends: '0'
               preprocessing:
                 - type: JSONPATH
@@ -153,6 +177,9 @@ zabbix_export:
               key: 'zsync.dataset.latest_source_created[{#SOURCE}]'
               delay: '0'
               value_type: UNSIGNED
+              tags:
+                - tag: Application
+                  value: 'zsync-backup'
               units: unixtime
               preprocessing:
                 - type: JSONPATH
@@ -171,6 +198,9 @@ zabbix_export:
               key: 'zsync.dataset.source_count[{#SOURCE}]'
               delay: '0'
               value_type: UNSIGNED
+              tags:
+                - tag: Application
+                  value: 'zsync-backup'
               preprocessing:
                 - type: JSONPATH
                   parameters:
@@ -183,6 +213,9 @@ zabbix_export:
               key: 'zsync.dataset.target_count[{#SOURCE}]'
               delay: '0'
               value_type: UNSIGNED
+              tags:
+                - tag: Application
+                  value: 'zsync-backup'
               preprocessing:
                 - type: JSONPATH
                   parameters:
@@ -196,6 +229,9 @@ zabbix_export:
               delay: '0'
               history: 365d
               value_type: UNSIGNED
+              tags:
+                - tag: Application
+                  value: 'zsync-backup'
               units: B
               preprocessing:
                 - type: JSONPATH
@@ -210,6 +246,9 @@ zabbix_export:
               delay: '0'
               history: 365d
               value_type: UNSIGNED
+              tags:
+                - tag: Application
+                  value: 'zsync-backup'
               units: s
               preprocessing:
                 - type: JSONPATH
@@ -223,6 +262,9 @@ zabbix_export:
               key: 'zsync.dataset.error[{#SOURCE}]'
               delay: '0'
               value_type: TEXT
+              tags:
+                - tag: Application
+                  value: 'zsync-backup'
               trends: '0'
               preprocessing:
                 - type: JSONPATH
